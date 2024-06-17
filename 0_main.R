@@ -34,7 +34,7 @@ loadFunctions("scripts")
 
 # pull any external data sets ---- 
 ## this should only happen once 
-pullCensusGeographies(overwrite = TRUE)
+pullCensusGeographies(overwrite = FALSE)
 
 # set up environment ----
 

@@ -6,3 +6,4 @@ data/
 *.gpkg
 .gpkg
 .tif
+/data
