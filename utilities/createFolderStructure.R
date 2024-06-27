@@ -1,40 +1,43 @@
+
+
+
 #' createFolderStructures
 #' @description
 #' A helper function that generates a the folder structure for the project 
 #' 
 #' 
 createFolderStructures <- function(){
+  # helper function 
+  testThenCreate <- function(path){
+    # test then create raw 
+    if(!dir.exists(path)){
+      dir.create(path)
+    }else{
+      print(paste0("The ", path, " already exists."))
+    }
+  }
+  
+  # set root 
   root <- getwd()
   # data 
   dataPath <- paste0(root,"/data")
-  # test then create 
-  if(!dir.exists(dataPath)){
-    dir.create(dataPath)
-  }else{
-    print(paste0("The ", dataPath, " already exists."))
-  }
+  # data folder 
+  testThenCreate(path = dataPath)
   # subfolders within the data folder 
   dataRaw <- paste0(dataPath, "/raw")
   dataProcessed <- paste0(dataPath, "/processed")
   dataProducts <- paste0(dataPath, "/products")
+  primaryFolder <- c(dataRaw, dataProcessed, dataProducts)
+  # generate folders 
+  lapply(X = primaryFolder, FUN = testThenCreate)
   
-  # test then create raw 
-  if(!dir.exists(dataRaw)){
-    dir.create(dataRaw)
-  }else{
-    print(paste0("The ", dataRaw, " already exists."))
-  }
+  # generate category within the products folder 
+  components <- c("environmentalExposures", "environmentalEffects", "climateVulnerability",
+                  "sensitivePopulation", "demographics")
+  # produce the sub layers 
+  productComponents <- paste0(dataProducts,"/", components)
+  # generate folders 
+  lapply(X = productComponents, FUN = testThenCreate)
+  print("all folders generated") 
   
-  # test then create data processed 
-  if(!dir.exists(dataProcessed)){
-    dir.create(dataProcessed)
-  }else{
-    print(paste0("The ", dataProcessed, " already exists."))
-  }
-  # test then create data products 
-  if(!dir.exists(dataProducts)){
-    dir.create(dataProducts)
-  }else{
-    print(paste0("The ", dataProducts, " already exists."))
-  }
 }

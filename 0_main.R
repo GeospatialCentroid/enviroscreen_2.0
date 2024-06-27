@@ -7,8 +7,8 @@
 
 
 # source libraries ---
-pacman::p_load(terra,dplyr, stringr, sf, targets, tidycensus,
-               tigris, tmap)
+pacman::p_load(terra, dplyr, stringr, sf, targets, tidycensus,
+               furrr, tigris, tmap, readr)
 tmap_mode("view")
 ## alt ; install you census api key if you want or provide as parameter in functions 
 # tidycensus::census_api_key(key = "your key",
@@ -32,19 +32,19 @@ loadFunctions("functions")
 loadFunctions("scripts")
 
 
-# pull any external data sets ---- 
-## this should only happen once 
+# gatheringDataSources ---- 
+## geographic layers  
 pullCensusGeographies(overwrite = FALSE)
+## ACS data variables 
+acsVars <- tidycensus::load_variables(year = 2022,dataset = "acs5")
+write_csv(acsVars, file = "data/products/acsLabels.csv")
 
 # set up environment ----
-
-## set spatial scale 
-
-## 
+plan(multisession, workers = 3)
 
 
 
-# Start the targets workflow processing steps ----
+# Indicator Score Calculation ----
 ## the processing functions themselves need to work exclusive of the targets frame
 ## work. Targets is being used here to ensure efficency in the running of the processing code
 ## work on what the best integration between the development stratigies is 
@@ -59,6 +59,9 @@ pullCensusGeographies(overwrite = FALSE)
 
 ## demographics score ----
 
+
+
+# Component Score Calculations  -------------------------------------------
 
 
 
