@@ -6,6 +6,9 @@
 
 # options for geographies c("county", "tract", "block group","block")
 
+View(load_variables(2022, "acs5"))
+
+
 geography <- "county"
 gatherACS <- function(geography){
   

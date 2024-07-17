@@ -11,9 +11,9 @@ pacman::p_load(terra, dplyr, stringr, sf, targets, tidycensus,
                furrr, tigris, tmap, readr)
 tmap_mode("view")
 ## alt ; install you census api key if you want or provide as parameter in functions 
-# tidycensus::census_api_key(key = "your key",
-#                            install = TRUE,
-#                            overwrite = TRUE)
+tidycensus::census_api_key(key = "your key",
+                           install = TRUE,
+                           overwrite = TRUE)
 
 # source helper function ---
 source("utilities/loadFunctions.R")
