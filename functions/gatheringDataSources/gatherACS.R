@@ -6,6 +6,10 @@
 
 # options for geographies c("county", "tract", "block group","block")
 
+
+### temp name to keep things from run on load
+acsFunction <- function(){
+
 View(load_variables(2022, "acs5"))
 
 
@@ -163,4 +167,6 @@ acsMOE <- paste0("data/products/acsMOE_",geography,".csv")
                   totalPopulation = "estimate",
                   totalPopulation_moe = "moe")|>
     dplyr::distinct()
-    
+  
+  
+}

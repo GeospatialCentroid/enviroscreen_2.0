@@ -31,13 +31,10 @@ loadFunctions("functions")
 ## I think I'll lean toward functions for a bit more control of the variables... might need to rename
 loadFunctions("scripts")
 
-
 # gatheringDataSources ---- 
 ## geographic layers  
 pullCensusGeographies(overwrite = FALSE)
-## ACS data variables 
-acsVars <- tidycensus::load_variables(year = 2022,dataset = "acs5")
-write_csv(acsVars, file = "data/products/acsLabels.csv")
+geometries <- processGeometryLayers()
 
 # set up environment ----
 plan(multisession, workers = 3)
