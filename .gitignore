@@ -2,8 +2,9 @@
 .Rhistory
 .RData
 .Ruserdata
-data/
+data/**
+data/*
 *.gpkg
 .gpkg
 .tif
-/data
+/data**
