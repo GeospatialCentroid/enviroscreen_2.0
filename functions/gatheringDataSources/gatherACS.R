@@ -167,6 +167,7 @@ acsMOE <- paste0("data/products/acsMOE_",geography,".csv")
                   totalPopulation = "estimate",
                   totalPopulation_moe = "moe")|>
     dplyr::distinct()
-  
-  
 }
+
+
+

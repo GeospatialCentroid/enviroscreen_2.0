@@ -89,3 +89,11 @@ pullCensusGeographies <- function(overwrite = FALSE){
 }
 
 
+
+# load in census blocks ---------------------------------------------------
+## this dataset was download from tigis 2020 census 
+## converted to a gpkg in QGIS 
+## uploaded to drive, then download here
+## drive link no longer exists, just including reference here for example. 
+# library(googledrive)
+# d1 <- googledrive::drive_download(file = googledrive::as_id("https://drive.google.com/file/d/1SjeoPLr0Go4UFTOwUXksZLekhVelkSFM/view?usp=drive_link"))
