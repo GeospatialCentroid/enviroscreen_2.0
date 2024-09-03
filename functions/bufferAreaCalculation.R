@@ -33,10 +33,13 @@
 block <- terra::vect("data/raw/censusBlocks.gpkg") # pulled from 2020... 
 blockGroups <- terra::vect("data/raw/censusBlockGroups.gpkg") 
 
+library(tidycensus)
+library(sf)
 
 ### need both the ACS estimate and the census value
 # from the acs 
 blockGroup_pop <- get_acs(
+  cache_table = TRUE,
   geography = "cbg",
   year = 2022,
   state = "08",
@@ -46,6 +49,7 @@ blockGroup_pop <- get_acs(
                 "estimateACSPop" = estimate)
 ## from the decadel --- my suggestion based on 1. alignment with ejscreen, 2. block level population data is from 2020
 blockGroup_pop2 <- get_decennial(
+  cache_table = TRUE,
   geography = "cbg",
   year = 2020,
   state = "08",
@@ -61,6 +65,7 @@ blockGroups2 <- blockGroups |>
   terra::vect()
 
 
+
 # generate the block points 
 blockData <- as.data.frame(block) |>
   dplyr::mutate(
@@ -70,9 +75,9 @@ blockData <- as.data.frame(block) |>
   terra::vect(geom = c("lon","lat"), crs= terra::crs(block))
 
 # generate the center of all blocks 
-terra::writeVector(x = blockData,filename = "data/processed/geographies/blockCenters.gpkg", overwrite=TRUE)
+# terra::writeVector(x = blockData,filename = "data/processed/geographies/blockCenters.gpkg", overwrite=TRUE)
 
-
+head(blockData)
 
 calBufferValues <- function(location, bufferDist, measureValue, blockCenters, blockGroups){
   # location : the point or area of interest
@@ -114,47 +119,10 @@ calBufferValues <- function(location, bufferDist, measureValue, blockCenters, bl
   ### this is just returning the measureValue, which makes sense because it's the only feature 
   ### not on the top and bottom of the equation 
   
+  ### the other though here is that there might be a different measured value depending on the
+  ### census block used. This may or may not apply to some buffered datasets, but wouldn't matter for 
+  ### for things like apens 
   
-  # establishing the equation
-  uniqueBG <- unique(cbgID$bgGEOID)
-  # - Numerator : (pop of select Blocks / pop of block group decadial) * pop of block group acs * measured value of block group
-  # - denominator : (pop of select Blocks / pop of block group decadial) * pop of block group acs
-  geoid <- uniqueBG[2]
-  runCalc <- function(geoid, cbgID, selectCBG, measuredValue){
-    # population of selected blocks 
-    popSelectBlocks <- cbgID |>
-      dplyr::filter(bgGEOID == geoid)|>
-      dplyr::select(blockPop)|>
-      dplyr::pull()
-    # population of full block Group from census 
-    popBG <- selectCBG |>
-      as.data.frame()|>
-      dplyr::filter(GEOID == geoid)|>
-      dplyr::select(estimateCensusPop)|>
-      dplyr::pull()
-    # population from ACS 
-    popBG_ACS <- selectCBG |>
-      as.data.frame()|>
-      dplyr::filter(GEOID == geoid)|>
-      dplyr::select(estimateACSPop)|>
-      dplyr::pull()
-    
-    # define parts 
-    num <- (popSelectBlocks/popBG)*popBG_ACS * measuredValue
-    denom <- (popSelectBlocks/popBG)*popBG_ACS
-    result <- num/denom 
-    # structure to table for record keeping 
-    outputTable <- data.frame(
-      geoid = geoid,
-      value = result
-    )
-    return(outputTable)
-  }
-  
-  vals <- purrr::map(.x = uniqueBG,.f = runCalc,
-                     cbgID = cbgID,
-                     selectCBG = selectCBG, 
-                     measuredValue = 0.59 )
   
 }
 
