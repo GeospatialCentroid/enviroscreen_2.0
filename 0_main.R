@@ -16,6 +16,7 @@ tidycensus::census_api_key(key = "your key",
                            overwrite = TRUE)
 
 # source helper function ---
+## this allows you to source files from a specific folder.
 source("utilities/loadFunctions.R")
 
 # load local utilities ----------------------------------------------------
@@ -26,18 +27,31 @@ createFolderStructures()
 # load local functions ----
 loadFunctions("functions")
 
-# load local scripts ---- 
-## not sure if want these written as functions or as scripts directly
-## I think I'll lean toward functions for a bit more control of the variables... might need to rename
-loadFunctions("scripts")
 
 # gatheringDataSources ---- 
 ## geographic layers  
 pullCensusGeographies(overwrite = FALSE)
-geometries <- processGeometryLayers()
+### generate a named list of all geometry objects used in the workflow
+geometries <- processGeometryLayers(overwrite = FALSE)
 
+
+
+# prepping for analysis  --------------------------------------------------
+## adjust block populations 
+if(!file.exists("data/processed/geographies/blocksWithAdjustedPop.gpkg")){
+  source("scripts/adjustedBlockPopulation.R")
+}
+## blockGroup buffering 
+### quite a long run time. > 5 minutes 
+if(!file.exists("data/processed/geographies/bgNeighbors.RDS")){
+  source("scripts/blockGroupBuffering.R")
+}
+
+vals <- readRDS("data/processed/geographies/bgNeighbors.RDS")
 # set up environment ----
 plan(multisession, workers = 3)
+
+
 
 
 

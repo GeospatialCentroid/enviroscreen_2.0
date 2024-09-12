@@ -1,6 +1,7 @@
 
-lifeExectancyLayer <- "data/lifeExpectancy/U.S._Life_Expectancy_at_Birth_by_State_and_Census_Tract_-_2010-2015Colorado.csv"
-geometryLayers <- geometries
+### set parameters for testings 
+# lifeExectancyLayer <- "data/lifeExpectancy/U.S._Life_Expectancy_at_Birth_by_State_and_Census_Tract_-_2010-2015Colorado.csv"
+# geometryLayers <- geometries
 
 getLifeExpectency <- function(filePath, geometryLayers){
   # select geometry layers of interest 
@@ -30,9 +31,4 @@ getLifeExpectency <- function(filePath, geometryLayers){
   #output the object
   return(results)
 }
-lifeExectancyLayer <- d1
-processlifeExectancy <- function(geometry, layerName, lifeExectancyLayer){
-  d1 <- lifeExectancyLayer
-  
-  
-}
+

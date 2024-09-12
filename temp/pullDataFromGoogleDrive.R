@@ -7,3 +7,8 @@ zipF<-file.choose() # lets you choose a file and save its file path in R (at lea
 outDir<- "temp"# Define the folder where the zip file should be unzipped to 
 unzip(zipF,exdir=outDir)  # unzip your file 
       
+
+
+
+
+

@@ -4,6 +4,7 @@
 loadFunctions <- function(path){
   # builds a path to the folder where .R scripts are contained 
   filePaths <- list.files(paste0(path,"/"),
+                          pattern = ".R",
                           full.names = TRUE,
                           recursive = TRUE)
   # this grabs all files, so might hit some issues as we can only source .R files 

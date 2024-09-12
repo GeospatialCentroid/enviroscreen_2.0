@@ -37,29 +37,3 @@ getNoise <- function(filePath, geometryLayers){
   #output the object
   return(results)
 }
-
-
-# function to run the processing 
-## This should do all the spatial analysis tasks 
-## the function above will handle the file management elements 
-processingNoise <- function(geometry, layerName, noiseLayer){
-  # print processing level 
-  print(paste0("Processing ", layerName)
-                    
-  # read in spatial layer 
-  # g2 <- sf::st_read(geometry) 
-  
-  # convert to terra object
-  g3 <- terra::vect(geometry) |> 
-    terra::project(noiseLayer)
-  
-  # grab values
-  r2 <- terra::extract(noiseLayer, g3, mean, na.rm = TRUE)
-  
-  # attached GEOID to datasets
-  geom <- dplyr::bind_cols(as.data.frame(g3), r2) |>
-    dplyr::select(GEOID, noiseLevel = CONUS_L50dBA_sumDay_exi)
-  # export 
-  return(geom)
-}
-
