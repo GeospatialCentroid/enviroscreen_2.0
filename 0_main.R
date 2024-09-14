@@ -32,7 +32,7 @@ loadFunctions("functions")
 ## geographic layers  
 pullCensusGeographies(overwrite = FALSE)
 ### generate a named list of all geometry objects used in the workflow
-geometries <- processGeometryLayers(overwrite = FALSE)
+geometries <- processGeometryLayers()
 
 
 

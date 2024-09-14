@@ -2,21 +2,8 @@
 # filePath <- "data/raw/noise/CONUS_L50dBA_sumDay_exi.tif"
 # data <- terra::rast(filePath)  
 # geometry <- geometryFiles[1]
-processNoise <- function(geometry, name, data){
-  # convert to terra and project 
-  geomVect <- terra::vect(geometry)|>
-    terra::project(data)
+processFlood <- function(geometry, name, data){
 
-  # extract Values
-  extractedVals <- terra::extract(x = data, y = geomVect,fun = mean, na.rm = TRUE)
-
-  # output
-  output <- geomVect |>
-    as.data.frame()|>
-    dplyr::mutate(
-      noise = extractedVals$CONUS_L50dBA_sumDay_exi
-    )|>
-    dplyr::select(GEOID, noise)
   return(output)
 }
 
@@ -33,24 +20,24 @@ getNoise <- function(filePath,  geometryLayers){
   # select geometry layers of interest 
   geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
   # read in data 
-  r1 <- terra::rast(filePath)
+  v1 <- terra::vect(filePath)
   # established the export 
-  exportPathMain <- "data/products/environmentalExposures"
+  exportPathMain <- "data/products/climateVulnerability"
   # create export dir
-  exportDir <- paste0(exportPathMain,"/noise")
+  exportDir <- paste0(exportPathMain,"/flood")
   if(!dir.exists(exportDir)){
     dir.create(exportDir)
   }
   # process the datasets 
   results <- purrr::map2(.x = geometryFiles,
-                        .y = names(geometryFiles),
-                        .f = processNoise,
-                        data = r1)
+                         .y = names(geometryFiles),
+                         .f = processFlood,
+                         data = v1)
   
   for(i in seq_along(results)){
     data <- results[[i]]
     name <- names(results)[i]
-    write.csv(x = data, file = paste0(exportDir,"/noise_", name , ".csv"))
+    write.csv(x = data, file = paste0(exportDir,"/flood_", name , ".csv"))
   }
   
   #output the object
