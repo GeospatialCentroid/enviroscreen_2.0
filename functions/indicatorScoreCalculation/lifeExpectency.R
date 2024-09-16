@@ -5,10 +5,10 @@
 ###
 
 # 
-filePath <- "data/raw/lifeExpectancy/U.S._Life_Expectancy_at_Birth_by_State_and_Census_Tract_-_2010-2015_20240703.csv"
-geometryLayers <- geometries
-
-geometry <- geometryFiles[1]
+# filePath <- "data/raw/lifeExpectancy/U.S._Life_Expectancy_at_Birth_by_State_and_Census_Tract_-_2010-2015_20240703.csv"
+# geometryLayers <- geometries
+# 
+# geometry <- geometryFiles[1]
 
 processlifeExectancy <- function(geometry, data){
   # this is a terrible data format... doing some adjustments

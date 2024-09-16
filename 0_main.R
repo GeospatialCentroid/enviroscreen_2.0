@@ -11,9 +11,9 @@ pacman::p_load(terra, dplyr, stringr, sf, targets, tidycensus,
                furrr, tigris, tmap, readr)
 tmap_mode("view")
 ## alt ; install you census api key if you want or provide as parameter in functions 
-tidycensus::census_api_key(key = "your key",
-                           install = TRUE,
-                           overwrite = TRUE)
+# tidycensus::census_api_key(key = "your key",
+#                            install = TRUE,
+#                            overwrite = TRUE)
 
 # source helper function ---
 ## this allows you to source files from a specific folder.
@@ -61,11 +61,14 @@ plan(multisession, workers = 3)
 ## work on what the best integration between the development stratigies is 
 
 ## Environmental Exposures ----
-
+getNoise(filePath = "data/raw/noise/CONUS_L50dBA_sumDay_exi.tif",
+         geometryLayers = geometries)
 ## environmental Effects ---- 
 
-## climate vulnerability ----
 
+## climate vulnerability ----
+getWildfire(filePath = "data/raw/wildfireRisk/Data/whp2023_GeoTIF/whp2023_cnt_conus.tif",
+            geometryLayers = geometries)
 ## sensitive populations ----
 
 ## demographics score ----
