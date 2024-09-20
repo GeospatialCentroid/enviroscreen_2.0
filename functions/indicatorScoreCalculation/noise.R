@@ -2,7 +2,7 @@
 # filePath <- "data/raw/noise/CONUS_L50dBA_sumDay_exi.tif"
 # data <- terra::rast(filePath)  
 # geometry <- geometryFiles[1]
-processNoise <- function(geometry, name, data){
+processNoise <- function(geometry, data){
   # convert to terra and project 
   geomVect <- terra::vect(geometry)|>
     terra::project(data)
@@ -42,8 +42,8 @@ getNoise <- function(filePath,  geometryLayers){
     dir.create(exportDir)
   }
   # process the datasets 
-  results <- purrr::map2(.x = geometryFiles,
-                        .y = names(geometryFiles),
+  results <- purrr::map(.x = geometryFiles,
+                        # .y = names(geometryFiles),
                         .f = processNoise,
                         data = r1)
   

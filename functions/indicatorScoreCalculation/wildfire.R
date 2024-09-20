@@ -5,7 +5,7 @@
 # filePath <- "data/raw/wildfireRisk/Data/whp2023_GeoTIF/whp2023_cnt_conus.tif"
 # data <- terra::rast(filePath)
 # geometry <- geometryFiles[[1]]
-processFire<- function(geometry, name, data){
+processFire<- function(geometry, data){
   # convert to terra and project 
   geomVect <- terra::vect(geometry)|>
     terra::project(data)
@@ -45,8 +45,7 @@ getWildfire <- function(filePath,  geometryLayers){
     dir.create(exportDir)
   }
   # process the datasets 
-  results <- purrr::map2(.x = geometryFiles,
-                         .y = names(geometryFiles),
+  results <- purrr::map(.x = geometryFiles,
                          .f = processFire,
                          data = r1)
   
