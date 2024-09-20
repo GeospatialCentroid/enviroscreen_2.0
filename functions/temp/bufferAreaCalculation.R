@@ -30,54 +30,54 @@
 
 # move this to the processing sections ------------------------------------
 ## need these from the raw folder for the population data and lat long of block centers
-block <- terra::vect("data/raw/censusBlocks.gpkg") # pulled from 2020... 
-blockGroups <- terra::vect("data/raw/censusBlockGroups.gpkg") 
+# block <- terra::vect("data/raw/censusBlocks.gpkg") # pulled from 2020... 
+# blockGroups <- terra::vect("data/raw/censusBlockGroups.gpkg") 
 
-library(tidycensus)
-library(sf)
-
-### need both the ACS estimate and the census value
-# from the acs 
-blockGroup_pop <- get_acs(
-  cache_table = TRUE,
-  geography = "cbg",
-  year = 2022,
-  state = "08",
-  variables = "B01001_001"
-)|>
-  dplyr::select(GEOID,
-                "estimateACSPop" = estimate)
-## from the decadel --- my suggestion based on 1. alignment with ejscreen, 2. block level population data is from 2020
-blockGroup_pop2 <- get_decennial(
-  cache_table = TRUE,
-  geography = "cbg",
-  year = 2020,
-  state = "08",
-  variables = "P1_001N" # total number of people 
-)|>
-  dplyr::select(GEOID,
-                "estimateCensusPop" = value)
-# join to the blockgroup data
-blockGroups2 <- blockGroups |>
-  st_as_sf() |> 
-  dplyr::left_join(y =blockGroup_pop, by = "GEOID")|>
-  dplyr::left_join(y =blockGroup_pop2, by = "GEOID")|>
-  terra::vect()
-
-
-
-# generate the block points 
-blockData <- as.data.frame(block) |>
-  dplyr::mutate(
-    lon = as.numeric(INTPTLON20),
-    lat = as.numeric(stringr::str_sub(INTPTLAT20, 2, -2))
-  )|>
-  terra::vect(geom = c("lon","lat"), crs= terra::crs(block))
-
-# generate the center of all blocks 
-# terra::writeVector(x = blockData,filename = "data/processed/geographies/blockCenters.gpkg", overwrite=TRUE)
-
-head(blockData)
+# library(tidycensus)
+# library(sf)
+# 
+# ### need both the ACS estimate and the census value
+# # from the acs 
+# blockGroup_pop <- get_acs(
+#   cache_table = TRUE,
+#   geography = "cbg",
+#   year = 2022,
+#   state = "08",
+#   variables = "B01001_001"
+# )|>
+#   dplyr::select(GEOID,
+#                 "estimateACSPop" = estimate)
+# ## from the decadel --- my suggestion based on 1. alignment with ejscreen, 2. block level population data is from 2020
+# blockGroup_pop2 <- get_decennial(
+#   cache_table = TRUE,
+#   geography = "cbg",
+#   year = 2020,
+#   state = "08",
+#   variables = "P1_001N" # total number of people 
+# )|>
+#   dplyr::select(GEOID,
+#                 "estimateCensusPop" = value)
+# # join to the blockgroup data
+# blockGroups2 <- blockGroups |>
+#   st_as_sf() |> 
+#   dplyr::left_join(y =blockGroup_pop, by = "GEOID")|>
+#   dplyr::left_join(y =blockGroup_pop2, by = "GEOID")|>
+#   terra::vect()
+# 
+# 
+# 
+# # generate the block points 
+# blockData <- as.data.frame(block) |>
+#   dplyr::mutate(
+#     lon = as.numeric(INTPTLON20),
+#     lat = as.numeric(stringr::str_sub(INTPTLAT20, 2, -2))
+#   )|>
+#   terra::vect(geom = c("lon","lat"), crs= terra::crs(block))
+# 
+# # generate the center of all blocks 
+# # terra::writeVector(x = blockData,filename = "data/processed/geographies/blockCenters.gpkg", overwrite=TRUE)
+# 
+# head(blockData)
 
 calBufferValues <- function(location, bufferDist, measureValue, blockCenters, blockGroups){
   # location : the point or area of interest
