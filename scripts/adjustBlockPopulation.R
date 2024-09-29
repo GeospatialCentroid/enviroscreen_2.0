@@ -6,10 +6,12 @@
 # 2020 blocks with population values 
 blocks  <- tigris::blocks(state = "08", year = 2020)|> 
   st_drop_geometry()|> 
+  # define the GEOID of county, census tract, and census block groups 
   dplyr::mutate(
     cGEOID = stringr::str_sub(GEOID20, start = 1, end = 5),
     ctGEOID = stringr::str_sub(GEOID20, start = 1, end = 11),
     bgGEOID = stringr::str_sub(GEOID20, start = 1, end = 12))|> # assigning this value later 
+  # pull the information of interest
   dplyr::select(
     "GEOID20",
     "INTPTLAT20",
@@ -44,9 +46,12 @@ blockJoin <- blocks |>
   dplyr::left_join(y = bg2020, by = "bgGEOID")|>
   dplyr::left_join(y = bg2022, by = "bgGEOID")|>
   dplyr::mutate(
+    # this account for the change in the block centroid population between 2020 census and 2022 acs 
     acs2022PopAdj = case_when(
       POP20 == 0 ~ 0,
-      POP20 != 0 ~ round((POP20/totalPop2020)*totalPop2022))
+      POP20 != 0 ~ round((POP20/totalPop2020)*totalPop2022)),
+    # this generates a measure of the proportion of the block group population represented by each block 
+    percentOfCBGpopulation = (acs2022PopAdj/totalPop2022)*100
     )
 
 # export

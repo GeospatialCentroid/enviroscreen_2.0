@@ -8,7 +8,7 @@
 
 # source libraries ---
 pacman::p_load(terra, dplyr, stringr, sf, tidycensus,
-               sfdep, tigris, tmap, readr)
+               sfdep, tigris, tmap, readr, readxl)
 tmap_mode("view")
 ## alt ; install you census api key if you want or provide as parameter in functions 
 # tidycensus::census_api_key(key = "your key",
@@ -34,12 +34,10 @@ pullCensusGeographies(overwrite = FALSE)
 ### generate a named list of all geometry objects used in the workflow
 geometries <- processGeometryLayers()
 
-
-
 # prepping for analysis  --------------------------------------------------
 ## adjust block populations 
 if(!file.exists("data/processed/geographies/blocksWithAdjustedPop.gpkg")){
-  source("scripts/adjustedBlockPopulation.R")
+  source("scripts/adjustBlockPopulation.R")
 }
 ## blockGroup buffering 
 ### quite a long run time. > 5 minutes 
@@ -49,7 +47,6 @@ if(!file.exists("data/processed/geographies/bgNeighbors.RDS")){
 
 vals <- readRDS("data/processed/geographies/bgNeighbors.RDS")
 # set up environment ----
-plan(multisession, workers = 3)
 
 
 
@@ -63,15 +60,34 @@ plan(multisession, workers = 3)
 ## Environmental Exposures ----
 getNoise(filePath = "data/raw/noise/CONUS_L50dBA_sumDay_exi.tif",
          geometryLayers = geometries)
-## environmental Effects ---- 
 
 
-## climate vulnerability ----
+
+# environmental Effects ---- 
+getMining(geometryLayers = geometries)
+
+# climate vulnerability ----
+### wildfire
 getWildfire(filePath = "data/raw/wildfireRisk/Data/whp2023_GeoTIF/whp2023_cnt_conus.tif",
             geometryLayers = geometries)
-## sensitive populations ----
+### drought 
+getDrought(filePath = "data/raw/drought/dm_export_20190101_20231231.csv",
+           geometryLayers = geometries)
+### heat days 
+getHeat(folderPath = "data/raw/heatDays",
+        geometryLayers = geometries)
 
-## demographics score ----
+
+# sensitive populations ----
+### asthma 
+getAsthma(filePath = "data/raw/asthma/co_asthma_hospitalization_nosupp_1822.csv",
+          geometryLayers = geometries)
+### low birth weight 
+getLowBirthWeight(filePath = "data/raw/lowBirthWeight/co_lowbirthweight_births_nosupp_1822.xlsx" ,
+                  geometryLayers = geometries)
+
+
+# demographics score ----
 
 
 

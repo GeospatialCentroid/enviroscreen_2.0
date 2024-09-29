@@ -1,0 +1,445 @@
+
+# Overview of buffering point source emissions 
+
+
+This work is an attempt to apply the methods outline in the EJScreen technical [documentation](https://www.epa.gov/system/files/documents/2024-07/ejscreen-tech-doc-version-2-3.pdf) (section 7). 
+
+
+
+## Definitions 
+Census Block Groups : Smallest area measures evaluated by Colorado EnviroScreen 
+Census Blocks : Component parts of Census Block Groups. Only generated at the Decal Census 
+- The block (area geography) are never used directly in this work. Instead we rely on the block centroid(middle) of that area and test all distance relationships as point to point measures. 
+
+
+## High level overview 
+
+For every emission point 
+- determine all the census blocks within 10km 
+- apply a inverse distance weight measure to calculate the source to block score 
+- apply a population metric measure to the 'source to block' score 
+- final value : a population and distance weight emission score 
+
+Sum all the population and distance weight emission scores for each block 
+
+Sum all aggregated block scores for the geography of interest (census block group, census tract, county)
+
+
+
+## Preperation steps 
+
+Colorado EnviroScreen will require completing this step for 4 indicators 
+
+1. Air Toxics Emission :   48,000 sites
+2. Other Air Pollutants : 48,000 sites
+3. Proximity to mining locations : 1200 sites 
+4. Proximity to oil and gas : 85,000 sites
+
+For the air toxics and air pollutant measures, the score assigned to each pollution source is dependent on the relative concentration of emission against all other sources across the state. Emission Score values can be range for example between 1 and 10. 
+
+For Proximity to mining and oil and gas, each emission sources receives a standard score of 1. 
+
+**Many Calculations** 
+
+As this method requires a testing of a spatial relationship between each emission source and census block. There are between 1,200 and 85,000 emission sites and 140,000 blocks. Efforts were taken to reduce the number of spatial relationships tested. We will explain those below. 
+
+
+### Neighboring Block groups 
+
+The code below is used to determine what block groups are within a 10km radius of each block group. 
+As out point based emission sources will fall within a Block Group. We can use this reference data to filter which blocks should be considered before we test the spatial distance between emission location and block centroid. 
+
+```{r, eval=FALSE}
+# read in block groups 
+bgs <- terra::vect("data/processed/geographies/censusBlockGroup.gpkg")
+
+# function for testing what block groups are within 10km of a selected block group 
+## 
+#' Buffer a block group and grap GEOID of all block groups within 10km 
+#'
+#' @param index : a numberical values based on the total number of block groups
+#' @param allBlockGroups : a spatial data layer representing all block groups 
+#'
+#' @return
+
+bufferAndCollect <- function(index, allBlockGroups){
+  # ensure the input geometry is valid 
+  validGeom <- terra::makeValid(allBlockGroups[index,])\
+  # buffer the geomentry by 10000m.
+  ## can use meters here because dataset is in an unprojected lat lon
+  buf <- terra::buffer(x = validGeom, width = 10000)
+  
+  # crop 
+  ## limit the number of outside block groups considered by cropping to the extent
+  ## of the buffer object 
+  cropBGS <- try(terra::crop(x = allBlockGroups, y = buf))
+  
+  # hitting errors with invalid geometries after the buffer. 
+  # work around here was to take a centroid and buffer by an additional 2km so 12km
+  # total. This should work as later spatail relationships are point to point in nature
+  # This is just ment to determine what block groups should be considered. 
+  if(class(cropBGS) == "try-error"){
+    centroid <- terra::centroids(validGeom)
+    buf <- terra::buffer(x = centroid, width = 12000)
+    cropBuff <- terra::crop(buf,y = terra::ext(allBlockGroups))
+    cropBGS <- terra::crop(x = allBlockGroups, y = buf)
+    # extract ids 
+    ids <- list(cropBGS$GEOID)
+    return(ids)
+  }else{
+    # extract ids 
+    ids <- cropBGS$GEOID
+    return(ids) ## id's object is a vect of all census block groups within 10km of the 
+    ## block group of interest. 
+  }
+}
+
+# can't store the list inside the terra object so we create a DF 
+bgsDF <- as.data.frame(bgs)
+# using index for the function
+vals <- seq_along(bgs)
+# assign results 
+output <- purrr::map(.x = vals, .f = bufferAndCollect, allBlockGroups = bgs)
+
+# store the list object the data frame with the block group GEOID  
+bgsDF$neighbors <- output
+
+# export 
+## this will be read in by later functions to determine what neighbor block groups
+## should be considered. 
+saveRDS(bgsDF, file = "data/processed/geographies/bgNeighbors.RDS")
+
+```
+
+
+### Adjust the population 
+
+Census blocks are only evaluated during the decadel census. As Colorado EnviroScreen is mandated to use the more current 5-year acs measures, we have applied a conversion to adjust the block population to the current ACS period of interest
+
+The adjustment involves 
+
+> (2020 Block Population / 2020 Block Group Population) * 2022 5-year ACS Block Group Population
+
+A final step involves calculating what proportion of the block group population is represented at each block. 
+
+The calculation is perform by 
+
+> (adjusted 2022 block population / 2022 5-year ACS block group Population) * 100
+
+
+```{r, eval=FALSE}
+
+# 2020 blocks with population values 
+blocks  <- tigris::blocks(state = "08", year = 2020)|> 
+  st_drop_geometry()|> 
+  # define the GEOID of county, census tract, and census block groups 
+  dplyr::mutate(
+    cGEOID = stringr::str_sub(GEOID20, start = 1, end = 5),
+    ctGEOID = stringr::str_sub(GEOID20, start = 1, end = 11),
+    bgGEOID = stringr::str_sub(GEOID20, start = 1, end = 12))|>
+  # select the columns of interest
+  dplyr::select(
+    "GEOID20",
+    "INTPTLAT20",
+    "INTPTLON20",
+    "POP20",
+    "cGEOID",
+    "ctGEOID",
+    "bgGEOID")
+
+
+# 2020 block groups with population values 
+## it's oddly challenging pulling total pop directly from decadal census 
+## so going this route by adding together all block population values 
+bg2020 <- blocks |>
+  dplyr::group_by(bgGEOID)|>
+  dplyr::summarise(totalPop2020 = sum(POP20, na.rm=TRUE))|>
+  dplyr::select(bgGEOID, totalPop2020)
+
+# 5-year acs block groups with population values 
+bg2022  <- tidycensus::get_acs(geography = "cbg",
+                                variables = c(
+                                       #total Population
+                                       "B01003_001"),
+                                state = "08",
+                                year = 2022) |>
+  dplyr::select(
+    bgGEOID= GEOID,
+    totalPop2022 = estimate
+  )
+
+
+# join and mutate for adjusted population 
+blockJoin <- blocks |> 
+  dplyr::left_join(y = bg2020, by = "bgGEOID")|>
+  dplyr::left_join(y = bg2022, by = "bgGEOID")|>
+  dplyr::mutate(
+    # this account for the change in the block centroid population between 2020 census and 2022 acs 
+    acs2022PopAdj = case_when(
+      POP20 == 0 ~ 0,
+      POP20 != 0 ~ round((POP20/totalPop2020)*totalPop2022)),
+    # this generates a measure of the proportion of the block group population represented by each block 
+    percentOfCBGpopulation = (acs2022PopAdj/totalPop2022)*100
+    )
+
+# export
+write.csv(blockJoin, file = "data/processed/geographies/blocksWithAdjustedPop.csv")
+## generate spatail object 
+blockPopAbj <- blockJoin |>
+  st_as_sf(coords = c("INTPTLON20","INTPTLAT20"))|>
+  st_set_crs(4326)
+sf::st_write(blockPopAbj,  "data/processed/geographies/blocksWithAdjustedPop.gpkg",delete_dsn = TRUE)
+
+
+```
+
+
+
+### applying the method 
+
+Unlike most of enviroscreen indicators, the geographic scale of analysis does not effect the initial score calculation. This is because the buffer method only tests the spatial relationship between the emission source and the block centroids. All emission vlaues are store with the block centroid. Because of the inclusive spatial relationship of census geographies, we can under the county, census tract, and census block group that every block centroid will fall withing. 
+
+As a result, the score calculation is performed once. The resulting values are then aggregated (by adding) to the larger geographic areas. 
+
+We will demostrant the process below with the code for the mining indicator. 
+
+```{r eval=FALSE}
+
+#' Generate Mining measure
+#'
+#' @param geometryLayers : list of spatial object representing the processing levels
+#' @return : a list of results at the three processing levels. -- think about if this is needed out not
+#' 
+getMining <- function(geometryLayers){
+  # these are only use for CRS reference 
+  geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
+ 
+  # read in data
+  hardrock <- sf::st_read("data/raw/mining/Active_Hardrock_Permit/Active_Hardrock_Permit.shp")|>
+    dplyr::select(PermitID, SiteName, StatusDesc, PermitType, Commodity, PermitAcre, Longitude, Latitude, MineType)|>
+    dplyr::mutate(DataSource = "Hardrock")
+  constr <- sf::st_read("data/raw/mining/Active_Construction_Permit/Active_Construction_Permit.shp")|>
+    dplyr::select(PermitID, SiteName, StatusDesc, PermitType, Commodity, PermitAcre, Longitude, Latitude, MineType)|>
+    dplyr::mutate(DataSource = "Construction")
+  coal <- sf::st_read("data/raw/mining/Active_Coal_Permit/Active_Coal_Permit.shp")|>
+    dplyr::select(PermitID, SiteName, StatusDesc, PermitType, PermitAcre, Longitude, Latitude, MineType)|>
+    dplyr::mutate(Commodity = "Coal",
+           DataSource = "Coal")
+  # filter the mining source data to include only active locations re project 
+  allMining <- rbind(hardrock, constr, coal)|>
+    dplyr::filter(StatusDesc == "Active") |> 
+    sf::st_transform(crs = crs(geometryFiles[[1]]))
+  
+  # pull census block groups 
+  cbg <- geometryFiles$censusBlockGroup
+  
+  # returns a position index on the interestion of the cbg per each mining location
+  # this works because data provide on mining locations is store as a point feature. 
+  t1 <- sf::st_intersects(x = allMining,
+                          y = cbg,
+                          sparse = TRUE
+                          )
+
+  # there was a location with a lat lon pair outside of the state, this was causing some issues
+  # so I generated this check step to ensure that we can asssign a value for each location
+  allMining$cbg_geoid <- NA
+  # the goal here is to assocated a Census Block Group GEOID with each emission source 
+  for(i in 1:length(t1)){
+    print(i)
+    index <- cbg$GEOID[t1[[i]]]
+    if(identical(index, character(0))){
+      allMining$cbg_geoid[i] <- NA
+    }else{
+      allMining$cbg_geoid[i] <- index
+    }
+  }
+    
+  # remove any na values 
+  allMining_clean <- allMining |> dplyr::filter(!is.na(cbg_geoid))
+  
+  # define the site score value (different for each indicator. )
+  allMining_clean$siteScore <- 1
+  # established the export 
+  exportPathMain <- "data/products/environmentalEffects"
+  
+  # create export dir
+  exportDir <- paste0(exportPathMain,"/mining")
+  if(!dir.exists(exportDir)){
+    dir.create(exportDir)
+  }
+  # process the datasets 
+  ### see code below for details on this function 
+  results <- processMining(data = allMining_clean)
+  
+  for(i in seq_along(results)){
+    data <- results[[i]]
+    name <- names(results)[i]
+    write.csv(x = data, file = paste0(exportDir,"/mining_", name , ".csv"))
+  }
+}
+
+```
+The processing function takes in a spatial dataset that contains 
+
+1. The point location of the active mining location 
+2. the GEOID of the census block group that the point location is from. 
+
+
+```{r eval = FALSE}
+
+
+
+# container function for testing the buffer relationships with mining localities 
+processMining <- function(data){
+  # read in reference layers 
+  blocks <- sf::st_read("data/processed/geographies/blocksWithAdjustedPop.gpkg")
+  # block group relations 
+  blockGroupNeighbors <- readRDS("data/processed/geographies/bgNeighbors.RDS")
+  print("reading in reference layers")
+  # define the index for the map function
+  index <- 1:nrow(data)
+
+  # call the calculate score function 
+  ## the processing step is slow, so if the data exists, we don't rerun it. 
+  exportFile <-  "data/products/environmentalEffects/mining/detailsOnDistanceScoring.csv"
+  if(!file.exists(exportFile)){
+    # test the relations ship between each emission source and all related census blocks
+    # if less then 10km, we assign a score to the block. As a block can be within 10km of 
+    # multiple emission sites, we will have repeated block GEOID in the compiled data.  
+    scores <- purrr::map(.x = index,
+                         .f = calculateDistanceScore, 
+                         sites = data, 
+                         blockGroupNeighbors= blockGroupNeighbors,
+                         blocks = blocks) |> 
+      dplyr::bind_rows()
+    
+    # export here because this is a big geoprocessing step 
+    write.csv(scores, file = "data/products/environmentalEffects/mining/detailsOnDistanceScoring.csv")
+  }else{
+    scores <- read.csv(exportFile)
+  }
+
+  # add all the values from the individual blocks into a single measure 
+  formatedScores <- scores |> 
+    # summarize to agggregate measures to the blockGEOID 
+      dplyr::group_by(blockGEOID)|>
+      dplyr::summarise(aggregatedTotalPopScore = sum(totalPopScore),
+                       aggregatedPercentPopScore = sum(percentPopScore),
+                       numberOfSource = n()) 
+  write.csv(scores, file = "data/products/environmentalEffects/mining/aggratedScoreValues.csv")
+  
+  
+  # group these by census block group, census tract, county 
+  allScores <- formatedScores |> 
+    dplyr::mutate(
+      cGEOID = stringr::str_sub(blockGEOID, start = 1, end = 5),
+      ctGEOID = stringr::str_sub(blockGEOID, start = 1, end = 11),
+      bgGEOID = stringr::str_sub(blockGEOID, start = 1, end = 12)
+    )
+  # write.csv(scores, file = "data/products/environmentalEffects/mining/mining_census.csv")
+  # 
+  
+  
+  # generate aggregates score measures
+  ## these are pasted out of this function in a list to utilize the file exporting convention 
+  ## established by other indicators. 
+  ## county
+  countyScores <- allScores |> 
+    dplyr::group_by(cGEOID)|>
+    dplyr::summarise(TotalPopScore = sum(aggregatedTotalPopScore),
+                     PercentPopScore = sum(aggregatedPercentPopScore),
+                     numberOfSource = n())
+  ## censustract 
+  censusTractScores <- allScores |> 
+    dplyr::group_by(ctGEOID)|>
+    dplyr::summarise(TotalPopScore = sum(aggregatedTotalPopScore),
+                     PercentPopScore = sum(aggregatedPercentPopScore),
+                     numberOfSource = n())
+  ## census block group 
+  censusBlockGroupScores <- allScores |> 
+    dplyr::group_by(bgGEOID)|>
+    dplyr::summarise(TotalPopScore = sum(aggregatedTotalPopScore),
+                     PercentPopScore = sum(aggregatedPercentPopScore),
+                     numberOfSource = n())
+  return(
+    list(
+      "county" = countyScores,
+      "censusTract" = censusTractScores,
+      "censusBlockGroup" = censusBlockGroupScores
+    )
+  )
+}
+
+
+```
+
+
+This is core geoprocessing method for testing the relationship between an emission source and block centroid 
+Block 
+
+```{r eval = FALSE}
+#' Calculate the distance weighted populated score per census block 
+#'
+#' @param index : a numerical vector used to select rows from the sites dataframe 
+#' @param sites : a spatial data object with all point source emission locations
+#' @param blockGroupNeighbors : a dataframe with indexed for what block to evaluated 
+#' @param blocks : a spatial data object representation the block location 
+#'
+#' @return : a dataframe of block elements with a distance - populaiton weighted scores per the specific emission source  
+calculateDistanceScore <- function(index, sites, blockGroupNeighbors, blocks){
+  # select element of interest 
+  site <- data[index, ]
+  
+  # print statement that occurs every 25 elements 
+  remainder <- index %% 25
+  if(remainder == 0){
+    print(paste0(index, " out of ", nrow(data)))
+  } 
+  # gather the expected census block groups 
+  neighborCBG <- blockGroupNeighbors |> 
+    dplyr::filter(GEOID == site$cbg_geoid) |>
+    dplyr::pull(neighbors)|>
+    unlist()
+  # filter the blocks based on expect neighbors 
+  blockSelection <- blocks |>
+    dplyr::filter(bgGEOID %in% neighborCBG)|>
+    sf::st_transform(crs(data))|>
+    # drop any zero population locations 
+    dplyr::filter(acs2022PopAdj > 0)
+  
+  # detemine the distance between emmision site and all blocks of interest
+  ## possable again due to the one to one nature of the point to point evaluations 
+  distance <- st_distance(x = site,
+                          y = blockSelection) |>
+    as.data.frame() |>
+    t()
+  ## want this in km rather than meters for the 1/distance measures
+  ## attribute it to the block selection objects
+  blockSelection$distance <- round(distance[,1]) / 1000 
+  # add the site score from the site 
+  blockSelection$siteScore <- site$siteScore
+  
+  blockSelectionDistanceFilter <- blockSelection |>
+    dplyr::filter(distance <= 10)|> # this might change--- currently using 10km 
+    # add a measure for the very small distances, keeps the distance score to a max of 10 
+    dplyr::mutate(adjDistance = case_when( 
+      distance < 0.1 ~ 0.1,
+      .default = distance),
+      distanceScore = 1/adjDistance, 
+      totalPopScore = siteScore * distanceScore * acs2022PopAdj, # using the total population 
+      percentPopScore = siteScore * distanceScore * percentOfCBGpopulation # using the proportion of Block group population 
+    ) |>
+    dplyr::select(
+      "blockGEOID" = GEOID20,
+      siteScore,
+      adjDistance,
+      acs2022PopAdj,
+      distanceScore,
+      "totalPopScore",
+      "percentPopScore"
+    )|> st_drop_geometry()
+  return(blockSelectionDistanceFilter)
+}
+
+
+```
