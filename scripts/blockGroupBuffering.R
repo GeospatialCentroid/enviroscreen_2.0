@@ -14,7 +14,7 @@ bgs <- terra::vect("data/processed/geographies/censusBlockGroup.gpkg")
 #' @return
 bufferAndCollect <- function(index, allBlockGroups){
   # ensure the input geometry is valid 
-  validGeom <- terra::makeValid(allBlockGroups[index,])\
+  validGeom <- terra::makeValid(allBlockGroups[index,])
   # buffer the geomentry by 10000m.
   ## can use meters here because dataset is in an unprojected lat lon
   buf <- terra::buffer(x = validGeom, width = 10000)

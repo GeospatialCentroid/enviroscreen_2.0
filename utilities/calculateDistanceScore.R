@@ -8,8 +8,8 @@
 #' @return : a dataframe of block elements with a distance - populaiton weighted scores per the specific emission source  
 calculateDistanceScore <- function(index, sites, blockGroupNeighbors, blocks){
   # select element of interest 
-  site <- data[index, ]
-  if(25 %% index){
+  site <- sites[index, ]
+  if(index %% 25 == 0){
     print(paste0(index, " out of ", nrow(data)))
   } 
   # gather the expected census block groups 

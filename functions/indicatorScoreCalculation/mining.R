@@ -13,19 +13,25 @@ processMining <- function(data){
 
   # call the calculate score function 
   exportFile <-  "data/products/environmentalEffects/mining/detailsOnDistanceScoring.csv"
-  if(!file.exists(exportFile)){
-    scores <- purrr::map(.x = index,
-                         .f = calculateDistanceScore, 
-                         sites = data, 
-                         blockGroupNeighbors= blockGroupNeighbors,
-                         blocks = blocks) |> 
-      dplyr::bind_rows()
+  # if(!file.exists(exportFile)){
     
-    # export here because this is a big geoprocessing step 
-    write.csv(scores, file = "data/products/environmentalEffects/mining/detailsOnDistanceScoring.csv")
-  }else{
-    scores <- read.csv(exportFile)
+  for(i in index){
+    val <- calculateDistanceScore(index = i,
+                                  sites = data, 
+                                  blockGroupNeighbors= blockGroupNeighbors,
+                                  blocks = blocks )
+    if(i == 1){
+      scores <- val
+    }else{
+      scores <- scores |> bind_rows(val)
+    }
   }
+
+  # export here because this is a big geoprocessing step 
+    write.csv(scores, file = "data/products/environmentalEffects/mining/detailsOnDistanceScoring.csv")
+  #   }else{
+  #    scores <- read.csv(exportFile)
+  # }
 
   
   formatedScores <- scores |> 

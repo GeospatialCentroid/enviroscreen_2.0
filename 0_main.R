@@ -37,7 +37,7 @@ geometries <- processGeometryLayers()
 # prepping for analysis  --------------------------------------------------
 ## adjust block populations 
 if(!file.exists("data/processed/geographies/blocksWithAdjustedPop.gpkg")){
-  source("scripts/adjustedBlockPopulation.R")
+  source("scripts/adjustBlockPopulation.R")
 }
 ## blockGroup buffering 
 ### quite a long run time. > 5 minutes 
@@ -47,7 +47,6 @@ if(!file.exists("data/processed/geographies/bgNeighbors.RDS")){
 
 vals <- readRDS("data/processed/geographies/bgNeighbors.RDS")
 # set up environment ----
-plan(multisession, workers = 3)
 
 
 
@@ -73,7 +72,7 @@ getWildfire(filePath = "data/raw/wildfireRisk/Data/whp2023_GeoTIF/whp2023_cnt_co
             geometryLayers = geometries)
 ### drought 
 getDrought(filePath = "data/raw/drought/dm_export_20190101_20231231.csv",
-           geometry = geometries)
+           geometryLayers = geometries)
 ### heat days 
 getHeat(folderPath = "data/raw/heatDays",
         geometryLayers = geometries)
