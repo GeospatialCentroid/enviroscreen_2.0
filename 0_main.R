@@ -57,6 +57,14 @@ vals <- readRDS("data/processed/geographies/bgNeighbors.RDS")
 ## work. Targets is being used here to ensure efficency in the running of the processing code
 ## work on what the best integration between the development stratigies is 
 
+
+### both the ejscreen dataset and acs data have indicators in multiple component score measures 
+### as a result these will be processed in a single script and write to their specific locations 
+## EJScreen Data 
+
+## ACS data 
+
+
 ## Environmental Exposures ----
 getNoise(filePath = "data/raw/noise/CONUS_L50dBA_sumDay_exi.tif",
          geometryLayers = geometries)
@@ -85,6 +93,12 @@ getAsthma(filePath = "data/raw/asthma/co_asthma_hospitalization_nosupp_1822.csv"
 ### low birth weight 
 getLowBirthWeight(filePath = "data/raw/lowBirthWeight/co_lowbirthweight_births_nosupp_1822.xlsx" ,
                   geometryLayers = geometries)
+### cancer 
+getCancer(geometryLayers = geometries)
+### heart disease 
+getHeart(geometryLayers = geometries)
+### diabetes
+getDiabetes(geometryLayers = geometries)
 
 
 # demographics score ----
