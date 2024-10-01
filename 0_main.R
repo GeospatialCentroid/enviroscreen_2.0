@@ -62,47 +62,113 @@ vals <- readRDS("data/processed/geographies/bgNeighbors.RDS")
 ### as a result these will be processed in a single script and write to their specific locations 
 ## EJScreen Data 
 
-## ACS data 
+# ACS data 
+getACS(geometryLayers = geometries , overwrite =FALSE)
 
+# Environmental Exposures ----
 
-## Environmental Exposures ----
+## air toxics 
+
+## diesel pm 
+
+## drinking water 
+
+## lead 
+
+## noise 
 getNoise(filePath = "data/raw/noise/CONUS_L50dBA_sumDay_exi.tif",
          geometryLayers = geometries)
 
+## other air pollutants 
+
+## ozone 
+
+## pm2.5 
+
+## traffic 
 
 
 # environmental Effects ---- 
+
+
+## impaired streams 
+
+## hazardous waste 
+
+## mining
 getMining(geometryLayers = geometries)
 
+## NPL sites 
+
+## oil and gas 
+
+## RMP sites 
+
+## wastewater discharge
+
+##
+
 # climate vulnerability ----
-### wildfire
-getWildfire(filePath = "data/raw/wildfireRisk/Data/whp2023_GeoTIF/whp2023_cnt_conus.tif",
-            geometryLayers = geometries)
-### drought 
+## drought 
 getDrought(filePath = "data/raw/drought/dm_export_20190101_20231231.csv",
            geometryLayers = geometries)
-### heat days 
+## heat days 
 getHeat(folderPath = "data/raw/heatDays",
         geometryLayers = geometries)
+## flood plain 
+
+## wildfire
+getWildfire(filePath = "data/raw/wildfireRisk/Data/whp2023_GeoTIF/whp2023_cnt_conus.tif",
+            geometryLayers = geometries)
+
 
 
 # sensitive populations ----
-### asthma 
+## asthma 
 getAsthma(filePath = "data/raw/asthma/co_asthma_hospitalization_nosupp_1822.csv",
           geometryLayers = geometries)
-### low birth weight 
+## cancer 
+getCancer(geometryLayers = geometries)
+## heart disease 
+getHeart(geometryLayers = geometries)
+## diabetes
+getDiabetes(geometryLayers = geometries)
+## low birth weight 
 getLowBirthWeight(filePath = "data/raw/lowBirthWeight/co_lowbirthweight_births_nosupp_1822.xlsx" ,
                   geometryLayers = geometries)
-### cancer 
-getCancer(geometryLayers = geometries)
-### heart disease 
-getHeart(geometryLayers = geometries)
-### diabetes
-getDiabetes(geometryLayers = geometries)
+
+## life expectancy 
+
+## mental health 
+getMentalHealth(geometryLayers = geometries)
+## pop under 5 
+getUnder5(geometryLayers = geometries)
+
+## pop over 65 
+getOver65(geometryLayers = geometries)
+
 
 
 # demographics score ----
 
+## housing burden 
+getHousingBurden(geometryLayers = geometries)
+
+## percent disability 
+getDisability(geometryLayers = geometries)
+
+## less then high school 
+getHighSchool(geometryLayers = geometries)
+
+## linguistic isolation 
+getLinguisticIsolation(geometryLayers = geometries)
+
+## low income 
+getLowIncome(geometryLayers = geometries)
+
+## people of color 
+getPOC(geometryLayers = geometries)
+  
 
 
 # Component Score Calculations  -------------------------------------------
