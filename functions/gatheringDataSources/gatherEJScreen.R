@@ -1,90 +1,82 @@
-
-# pull in the ejscreen data 
-# library(googledrive)
-## census block groups 
-
-
-### move to a better location 
-Force <- FALSE
-if(Force == TRUE){
-  googledrive::drive_download(file = as_id("https://drive.google.com/file/d/16ZK9gxpeug93EEgGyBiSsh3MH3STsr4Z/view?usp=drive_link"),
-                              path = "data/raw/ejscreen/ejscreenDataBlocks.zip")
-  #unzip
-  unzip(zipfile = "data/raw/ejscreen/ejscreenDataBlocks.zip",exdir = "data/raw/ejscreen")
+#' get EJ Screen data 
+#'
+#' @param geometryLayers - spatial data layers 
+#' @param overwrite - True/False value required to rerun the analysis
+#'
+#' @return
+getEJscreen <- function(geometryLayers, overwrite){
+  if(overwrite == TRUE){
+    # select geometry layers of interest 
+    geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
+    
+    # create export dir
+    exportDir <- "data/processed/ejscreen"
+    if(!dir.exists(exportDir)){
+      dir.create(exportDir)
+    }
+    # process the datasets 
+    results <- purrr::map2(.x = geometryFiles,
+                           .y = names(geometryFiles),
+                           .f = pullEJscreen)
+    
+    for(i in seq_along(results)){
+      data <- results[[i]]
+      name <- names(results)[i]
+      write.csv(x = data, file = paste0(exportDir,"/ejscreen_", name , ".csv"))
+    }
+  }else{
+    print("Set overwrite to TRUE if you wish to regerenate the EJScreen files ")
+  }
   
-  ## census tracts
-  googledrive::drive_download(file = as_id("https://drive.google.com/file/d/1am5SiLJidYQDsg6DWDMNrvvd6vo2xVhu/view?usp=drive_link"),
-                              path = "data/raw/ejscreen/ejscreenDataTracts.zip")
-  #unzip
-  unzip(zipfile = "data/raw/ejscreen/ejscreenDataTracts.zip",exdir = "data/raw/ejscreen")
 }
 
 
 
-gatherEJScreen <- function(){
-  # select specific indicators 
-  ## Diesel particulate matter (PM),
-  ## Fine particle pollution, 
-  ## Traffic proximity and volume,
-  ## proximity to hazardous waste facilities,
-  ## Proximity to National Priorities List sites, 
-  ## Proximity to Risk Management Plan (RMP)sites
-  ## Wastewater discharge indicator
-  # export data to specific geography 
+#' Process the EJscreen datasets
+#'
+#' @param geometry - spatial data layer of one of the three geometries of interest 
+#' @param name - the name of the geography layer, used for file paths 
+#'
+#' @return a dataframe of values for a specific geographic area 
+pullEJscreen <- function(geometry, name){
+  # conditional to assign geography based on tidy census data standards 
+  if(name == "censusBlockGroup"){
+    # read in data
+    d1 <- readr::read_csv("data/raw/ejscreen/EJSCREEN_2024_BG_StatePct_with_AS_CNMI_GU_VI.csv")
+  }
+  if(name != "censusBlockGroup"){
+    # read in data
+    d1 <- readr::read_csv("data/raw/ejscreen/EJScreen_2024_Tract_StatePct_with_AS_CNMI_GU_VI.csv")
+  }
   
-  # Census Blocks -----------------------------------------------------------
-  b1 <- vroom::vroom("data/raw/ejscreen/EJSCREEN_2024_BG_StatePct_with_AS_CNMI_GU_VI.csv")
-  b1 <- b1[b1$ST_ABBREV == "CO",]
-  # grab data 
-  b2 <- b1 |>
-    as.data.frame()|>
+  # pull the datasets and select indicators
+  ejscreen <- d1 |> 
+    dplyr::filter(ST_ABBREV == "CO")|>
     dplyr::select(
       GEOID = ID,
       particulateMatter = PM25,
       dieselPM = DSLPM,
+      traffic = PTRAF,
       proxHazWaste = PTSDF,
       proxNPLsites = PNPL,
       proxRMPsites = PRMP,
-      wasteWaterDischarge = PWDIS
-    ) 
-  #export 
-  write.csv(b2, file = "data/processed/ejscreen/ejscreenBlocks.csv")
+      wasteWaterDischarge = PWDIS)
   
   
-  # Census Tracts  ----------------------------------------------------------
-  t1 <- vroom::vroom("data/raw/ejscreen/EJScreen_2024_Tract_StatePct_with_AS_CNMI_GU_VI.csv")
-  t1 <- t1[t1$ST_ABBREV == "CO",]
-  # grab data 
-  t2 <- t1 |>
-    as.data.frame()|>
-    dplyr::select(
-      GEOID = ID,
-      particulateMatter = PM25,
-      dieselPM = DSLPM,
-      proxHazWaste = PTSDF,
-      proxNPLsites = PNPL,
-      proxRMPsites = PRMP,
-      wasteWaterDischarge = PWDIS
-    ) 
-  #export 
-  write.csv(t2, file = "data/processed/ejscreen/ejscreenTracts.csv")
-  
-  
-  # counties ----------------------------------------------------------------
-  ## take the mean of all values within a county based on the geoid of the tracts
-  c1 <- t2 |>
-    dplyr::mutate(GEOID = stringr::str_sub(GEOID, start = 1, end = 5))|>
-    dplyr::group_by(GEOID)|>
-    dplyr::summarise(
-      particulateMatter = mean(particulateMatter,na.rm=TRUE),
-      dieselPM =mean(dieselPM,na.rm=TRUE),
-      proxHazWaste = mean(proxHazWaste,na.rm=TRUE),
-      proxNPLsites = mean(proxNPLsites,na.rm=TRUE),
-      proxRMPsites = mean(proxRMPsites,na.rm=TRUE),
-      wasteWaterDischarge = mean(wasteWaterDischarge,na.rm=TRUE)
-    )|>
-    dplyr::filter(!is.na(GEOID))
-  #export 
-  write.csv(c1, file = "data/processed/ejscreen/ejscreenCounties.csv")
-  
-}
+  if(name == "county"){
+    # drop GEOID to county level then sum all values 
+    ejscreen <- ejscreen |>
+      dplyr::mutate(GEOID = str_sub(string = ejscreen$GEOID, start = 1, end = 5))|>
+      dplyr::group_by(GEOID)|>
+      dplyr::summarise_all(mean,na.rm=TRUE)
+  }
+    
+  # return 
+  return(ejscreen)
+}  
+
+
+
+
+
+

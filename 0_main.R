@@ -66,11 +66,12 @@ vals <- readRDS("data/processed/geographies/bgNeighbors.RDS")
 getACS(geometryLayers = geometries , overwrite =FALSE)
 
 # Environmental Exposures ----
+getEJscreen(geometryLayers = geometries, overwrite = TRUE)
 
 ## air toxics 
 
 ## diesel pm 
-
+getDiesel(geometryLayers = geometries)
 ## drinking water 
 
 ## lead 
@@ -86,11 +87,9 @@ getNoise(filePath = "data/raw/noise/CONUS_L50dBA_sumDay_exi.tif",
 ## pm2.5 
 
 ## traffic 
-
+getTraffic(geometryLayers = geometries)
 
 # environmental Effects ---- 
-
-
 ## impaired streams 
 
 ## hazardous waste 
@@ -99,7 +98,7 @@ getNoise(filePath = "data/raw/noise/CONUS_L50dBA_sumDay_exi.tif",
 getMining(geometryLayers = geometries)
 
 ## NPL sites 
-
+getNPSsites(geometryLayers = geometries)
 ## oil and gas 
 
 ## RMP sites 
@@ -172,7 +171,7 @@ getPOC(geometryLayers = geometries)
 
 
 # Component Score Calculations  -------------------------------------------
-
-
+## demographics 
+getDemographics(geometryLayers = geometries)
 
 
