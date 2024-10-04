@@ -69,30 +69,40 @@ getACS(geometryLayers = geometries , overwrite =FALSE)
 getEJscreen(geometryLayers = geometries, overwrite = TRUE)
 
 ## air toxics 
+### 1.0 method
 
 ## diesel pm 
 getDiesel(geometryLayers = geometries)
+
 ## drinking water 
+### 1.0 method
 
 ## lead 
+### ACS data
 
 ## noise 
 getNoise(filePath = "data/raw/noise/CONUS_L50dBA_sumDay_exi.tif",
          geometryLayers = geometries)
 
 ## other air pollutants 
+### 1.0 method
 
 ## ozone 
+### 1.0 method
 
 ## pm2.5 
+### 1.0 method
 
 ## traffic 
 getTraffic(geometryLayers = geometries)
 
 # environmental Effects ---- 
 ## impaired streams 
+### cdphe method 
 
 ## hazardous waste 
+### ejscreen 
+getHazardousWaste(geometryLayers = geometries)
 
 ## mining
 getMining(geometryLayers = geometries)
@@ -100,12 +110,15 @@ getMining(geometryLayers = geometries)
 ## NPL sites 
 getNPSsites(geometryLayers = geometries)
 ## oil and gas 
+### buffer method 
 
 ## RMP sites 
-
+### ejscreen 
+getRMPsites(geometryLayers = geometries)
 ## wastewater discharge
+### ejscreen 
+getWasteWater(geometryLayers = geometries)
 
-##
 
 # climate vulnerability ----
 ## drought 

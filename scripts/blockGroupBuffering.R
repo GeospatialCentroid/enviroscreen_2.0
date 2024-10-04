@@ -6,7 +6,7 @@
 library(sfdep)
 bgs <- terra::vect("data/processed/geographies/censusBlockGroup.gpkg")
 
-#' Buffer a block group and grap GEOID of all block groups within 10km 
+#' Buffer a block group and grap GEOID of all block groups within 5km 
 #'
 #' @param index : a numberical values based on the total number of block groups
 #' @param allBlockGroups : a spatial data layer representing all block groups 
@@ -17,7 +17,7 @@ bufferAndCollect <- function(index, allBlockGroups){
   validGeom <- terra::makeValid(allBlockGroups[index,])
   # buffer the geomentry by 10000m.
   ## can use meters here because dataset is in an unprojected lat lon
-  buf <- terra::buffer(x = validGeom, width = 10000)
+  buf <- terra::buffer(x = validGeom, width = 5000)
   
   # crop 
   ## limit the number of outside block groups considered by cropping to the extent
@@ -56,6 +56,6 @@ bgsDF$neighbors <- output
 
 # export 
 ## this will be read in by later functions to determine what neighbor block groups
-## should be considered. 
+## using the RDS format because a list is store in a datframe column 
 saveRDS(bgsDF, file = "data/processed/geographies/bgNeighbors.RDS")
 

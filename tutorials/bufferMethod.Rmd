@@ -46,7 +46,10 @@ As this method requires a testing of a spatial relationship between each emissio
 
 ### Neighboring Block groups 
 
-The code below is used to determine what block groups are within a 10km radius of each block group. 
+The code below is used to determine what block groups are within a 5km radius of each block group. 
+
+**note: the EJScreen method utilizes a 10km buffer size. It has been determine by the Colorado team to use a 5km buffer size. This matches our initial commitment in public outreach during summer 2024.** 
+
 As out point based emission sources will fall within a Block Group. We can use this reference data to filter which blocks should be considered before we test the spatial distance between emission location and block centroid. 
 
 ```{r, eval=FALSE}
