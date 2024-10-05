@@ -83,7 +83,9 @@ processCancer <- function(geometry, name, data){
   # output
   output <- output |>
     dplyr::rowwise()|>
-    dplyr::mutate(combinedCancer = mean(c(cancerPrevalence_pcntl,cancerMortality_pcntl)))
+    dplyr::mutate(combinedCancer = mean(c(cancerPrevalence_pcntl,cancerMortality_pcntl)))|>
+    dplyr::select("GEOID", "combinedCancer")
+  
   return(output)
 }
 

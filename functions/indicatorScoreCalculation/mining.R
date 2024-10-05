@@ -57,19 +57,37 @@ processMining <- function(data){
     dplyr::group_by(cGEOID)|>
     dplyr::summarise(noPopScore = sum(aggregatedNoPopScore),
                      PercentPopScore = sum(aggregatedPercentPopScore),
-                     numberOfSource = n())
+                     numberOfSource = n())|>
+    dplyr::select(
+      "GEOID" = cGEOID,
+      noPopScore,
+      PercentPopScore,
+      numberOfSource
+    )
   ## censustract 
   censusTractScores <- allScores |> 
     dplyr::group_by(ctGEOID)|>
     dplyr::summarise(noPopScore = sum(aggregatedNoPopScore),
                      PercentPopScore = sum(aggregatedPercentPopScore),
-                     numberOfSource = n())
+                     numberOfSource = n())|>
+    dplyr::select(
+      "GEOID" = ctGEOID,
+      noPopScore,
+      PercentPopScore,
+      numberOfSource
+    )
   ## census block group 
   censusBlockGroupScores <- allScores |> 
     dplyr::group_by(bgGEOID)|>
     dplyr::summarise(noPopScore = sum(aggregatedNoPopScore),
                      PercentPopScore = sum(aggregatedPercentPopScore),
-                     numberOfSource = n())
+                     numberOfSource = n())|>
+    dplyr::select(
+      "GEOID" = bgGEOID,
+      noPopScore,
+      PercentPopScore,
+      numberOfSource
+    )
   return(
     list(
       "county" = countyScores,

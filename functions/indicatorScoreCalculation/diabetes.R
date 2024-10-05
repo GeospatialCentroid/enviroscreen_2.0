@@ -82,7 +82,8 @@ processDiabetes <- function(geometry, name, data){
   # output
   output <- output |>
     dplyr::rowwise()|>
-    dplyr::mutate(combinedDiabetes = mean(c(diabetesPrevalence_pcntl,diabetesMortality_pcntl)))
+    dplyr::mutate(combinedDiabetes = mean(c(diabetesPrevalence_pcntl,diabetesMortality_pcntl)))|>
+    dplyr::select("GEOID", "combinedDiabetes")
   return(output)
 }
 

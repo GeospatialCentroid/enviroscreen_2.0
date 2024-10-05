@@ -8,7 +8,7 @@
 
 # source libraries ---
 pacman::p_load(terra, dplyr, stringr, sf, tidycensus,
-               sfdep, tigris, tmap, readr, readxl)
+               sfdep, tigris, tmap, readr, readxl,R.utils, vroom)
 tmap_mode("view")
 ## alt ; install you census api key if you want or provide as parameter in functions 
 # tidycensus::census_api_key(key = "your key",
@@ -78,7 +78,7 @@ getDiesel(geometryLayers = geometries)
 ### 1.0 method
 
 ## lead 
-### ACS data
+### ACS data --- what is used to call this measures? 
 
 ## noise 
 getNoise(filePath = "data/raw/noise/CONUS_L50dBA_sumDay_exi.tif",
@@ -89,9 +89,12 @@ getNoise(filePath = "data/raw/noise/CONUS_L50dBA_sumDay_exi.tif",
 
 ## ozone 
 ### 1.0 method
-
+getOzone(filePath = "data/raw/epa_cmaq/2021_ozone_daily_8hour_maximum.txt.gz",
+         geometryLayers = geometries)
 ## pm2.5 
 ### 1.0 method
+getPM25(filePath = "data/raw/epa_cmaq/2021_pm25_daily_average.txt.gz",
+        geometryLayers = geometries)
 
 ## traffic 
 getTraffic(geometryLayers = geometries)
@@ -128,7 +131,8 @@ getDrought(filePath = "data/raw/drought/dm_export_20190101_20231231.csv",
 getHeat(folderPath = "data/raw/heatDays",
         geometryLayers = geometries)
 ## flood plain 
-
+getFlood(filePath = "data/raw/floodplains/floodHazard.shp",  
+         geometryLayers= geometries)
 ## wildfire
 getWildfire(filePath = "data/raw/wildfireRisk/Data/whp2023_GeoTIF/whp2023_cnt_conus.tif",
             geometryLayers = geometries)
@@ -184,7 +188,25 @@ getPOC(geometryLayers = geometries)
 
 
 # Component Score Calculations  -------------------------------------------
+## environmental effects 
+getEnvironmentalEffects(geometryLayers = geometries )
+
+## environmental exposures 
+getEnvironmentalExposures(geometryLayers = geometries )
+
+## climate vulnerability 
+getClimate(geometryLayers = geometries)
+
+## sensitive population
+getSensitivePopulation(geometryLayers = geometries)
+
 ## demographics 
 getDemographics(geometryLayers = geometries)
+
+
+
+#  Group Component Score Calculations  ------------------------------------
+
+# Enviroscreen Score Calculations  ----------------------------------------
 
 

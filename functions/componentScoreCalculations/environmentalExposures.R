@@ -3,7 +3,7 @@
 # geometry <- geometryFiles[[1]]
 # name <- names(geometryFiles)[[1]]
 
-processDemoGraphics <- function(geometry, name, data){
+processEnvironmentalExposures <- function(geometry, name, data){
   # select the data set of interest 
   vals <- data[[grep(pattern = name, x = names(data))]]
   
@@ -41,11 +41,11 @@ processDemoGraphics <- function(geometry, name, data){
 #'
 #' @param geometryLayers : list of spatial object representing the processing levels
 #' 
-getDemographics <- function(geometryLayers){
+getEnvironmentalExposures <- function(geometryLayers){
   # select geometry layers of interest 
   geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
   # read in data 
-  data <- list.files("data/products/demographics",
+  data <- list.files("data/products/environmentalExposures",
                      pattern = ".csv",
                      full.names = TRUE,
                      recursive = TRUE)
@@ -67,12 +67,12 @@ getDemographics <- function(geometryLayers){
   # process the datasets 
   results <- purrr::map2(.x = geometryFiles,
                          .y = names(geometryFiles),
-                         .f = processDemoGraphics,
+                         .f = processEnvironmentalExposures,
                          data = allData)
   
   for(i in seq_along(results)){
     data <- results[[i]]
     name <- names(results)[i]
-    write.csv(x = data, file = paste0(exportDir,"/demographics_", name , ".csv"))
+    write.csv(x = data, file = paste0(exportDir,"/environmentalExposures_", name , ".csv"))
   }
 }

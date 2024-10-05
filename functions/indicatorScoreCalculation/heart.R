@@ -82,7 +82,8 @@ processHeart <- function(geometry, name, data){
   # output
   output <- output |>
     dplyr::rowwise()|>
-    dplyr::mutate(combinedHeart = mean(c(heartPrevalence_pcntl,heartMortality_pcntl)))
+    dplyr::mutate(combinedHeart = mean(c(heartPrevalence_pcntl,heartMortality_pcntl)))|>
+    dplyr::select("GEOID", "combinedHeart")
   return(output)
 }
 
