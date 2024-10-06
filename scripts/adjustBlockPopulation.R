@@ -51,7 +51,7 @@ blockJoin <- blocks |>
       POP20 == 0 ~ 0,
       POP20 != 0 ~ round((POP20/totalPop2020)*totalPop2022)),
     # this generates a measure of the proportion of the block group population represented by each block 
-    percentOfCBGpopulation = (acs2022PopAdj/totalPop2022)*100
+    percentOfCBGpopulation = round((acs2022PopAdj/totalPop2022)*100,digits = 2)
     )
 
 # export

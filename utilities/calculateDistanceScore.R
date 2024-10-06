@@ -10,7 +10,7 @@ calculateDistanceScore <- function(index, sites, blockGroupNeighbors, blocks){
   # select element of interest 
   site <- sites[index, ]
   if(index %% 25 == 0){
-    print(paste0(index, " out of ", nrow(data)))
+    print(paste0(index, " out of ", nrow(sites)))
   } 
   # gather the expected census block groups 
   neighborCBG <- blockGroupNeighbors |> 
@@ -19,11 +19,10 @@ calculateDistanceScore <- function(index, sites, blockGroupNeighbors, blocks){
     unlist()
   # filter the blocks based on expect neighbors 
   blockSelection <- blocks |>
-    dplyr::filter(bgGEOID %in% neighborCBG)|>
-    sf::st_transform(crs(data))|>
+    dplyr::filter(bgGEOID %in% neighborCBG) |>
+    sf::st_transform(crs(sites))|>
     # drop any zero population locations 
     dplyr::filter(acs2022PopAdj > 0)
-  
   # detemine the distance between emmision site and all blocks of interest 
   distance <- st_distance(x = site,
                           y = blockSelection) |>
@@ -36,23 +35,14 @@ calculateDistanceScore <- function(index, sites, blockGroupNeighbors, blocks){
   blockSelection$siteScore <- site$siteScore
   
   blockSelectionDistanceFilter <- blockSelection |>
-    dplyr::filter(distance <= 10)|> # this might change 
+    dplyr::filter(distance <= 5)|> # this might change 
     # add a measure for the very small distances, keeps the distance score to a max of 10 
     dplyr::mutate(adjDistance = case_when( 
       distance < 0.1 ~ 0.1,
       .default = distance),
       distanceScore = 1/adjDistance,
-      totalPopScore = siteScore * distanceScore * acs2022PopAdj,
-      percentPopScore = siteScore * distanceScore * percentOfCBGpopulation
-    ) |>
-    dplyr::select(
-      "blockGEOID" = GEOID20,
-      siteScore,
-      adjDistance,
-      acs2022PopAdj,
-      distanceScore,
-      "totalPopScore",
-      "percentPopScore"
+      nonPopScore = siteScore * distanceScore, # no population considered 
+      percentPopScore = siteScore * distanceScore * (percentOfCBGpopulation/100) # converting back to vals between 0-1
     )|> st_drop_geometry()
   return(blockSelectionDistanceFilter)
 }

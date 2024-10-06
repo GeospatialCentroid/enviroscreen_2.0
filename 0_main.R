@@ -8,7 +8,7 @@
 
 # source libraries ---
 pacman::p_load(terra, dplyr, stringr, sf, tidycensus,
-               sfdep, tigris, tmap, readr, readxl)
+               sfdep, tigris, tmap, readr, readxl,R.utils, vroom)
 tmap_mode("view")
 ## alt ; install you census api key if you want or provide as parameter in functions 
 # tidycensus::census_api_key(key = "your key",
@@ -57,42 +57,156 @@ vals <- readRDS("data/processed/geographies/bgNeighbors.RDS")
 ## work. Targets is being used here to ensure efficency in the running of the processing code
 ## work on what the best integration between the development stratigies is 
 
-## Environmental Exposures ----
+
+### both the ejscreen dataset and acs data have indicators in multiple component score measures 
+### as a result these will be processed in a single script and write to their specific locations 
+## EJScreen Data 
+
+# ACS data 
+getACS(geometryLayers = geometries , overwrite =FALSE)
+
+# Environmental Exposures ----
+getEJscreen(geometryLayers = geometries, overwrite = TRUE)
+
+## air toxics 
+### 1.0 method
+
+## diesel pm 
+getDiesel(geometryLayers = geometries)
+
+## drinking water 
+### 1.0 method
+
+## lead 
+### ACS data --- what is used to call this measures? 
+
+## noise 
 getNoise(filePath = "data/raw/noise/CONUS_L50dBA_sumDay_exi.tif",
          geometryLayers = geometries)
 
+## other air pollutants 
+### 1.0 method
 
+## ozone 
+### 1.0 method
+getOzone(filePath = "data/raw/epa_cmaq/2021_ozone_daily_8hour_maximum.txt.gz",
+         geometryLayers = geometries)
+## pm2.5 
+### 1.0 method
+getPM25(filePath = "data/raw/epa_cmaq/2021_pm25_daily_average.txt.gz",
+        geometryLayers = geometries)
+
+## traffic 
+getTraffic(geometryLayers = geometries)
 
 # environmental Effects ---- 
+## impaired streams 
+### cdphe method 
+
+## hazardous waste 
+### ejscreen 
+getHazardousWaste(geometryLayers = geometries)
+
+## mining
 getMining(geometryLayers = geometries)
 
+## NPL sites 
+getNPSsites(geometryLayers = geometries)
+## oil and gas 
+### buffer method 
+
+## RMP sites 
+### ejscreen 
+getRMPsites(geometryLayers = geometries)
+## wastewater discharge
+### ejscreen 
+getWasteWater(geometryLayers = geometries)
+
+
 # climate vulnerability ----
-### wildfire
-getWildfire(filePath = "data/raw/wildfireRisk/Data/whp2023_GeoTIF/whp2023_cnt_conus.tif",
-            geometryLayers = geometries)
-### drought 
+## drought 
 getDrought(filePath = "data/raw/drought/dm_export_20190101_20231231.csv",
            geometryLayers = geometries)
-### heat days 
+## heat days 
 getHeat(folderPath = "data/raw/heatDays",
         geometryLayers = geometries)
+## flood plain 
+getFlood(filePath = "data/raw/floodplains/floodHazard.shp",  
+         geometryLayers= geometries)
+## wildfire
+getWildfire(filePath = "data/raw/wildfireRisk/Data/whp2023_GeoTIF/whp2023_cnt_conus.tif",
+            geometryLayers = geometries)
+
 
 
 # sensitive populations ----
-### asthma 
+## asthma 
 getAsthma(filePath = "data/raw/asthma/co_asthma_hospitalization_nosupp_1822.csv",
           geometryLayers = geometries)
-### low birth weight 
+## cancer 
+getCancer(geometryLayers = geometries)
+## heart disease 
+getHeart(geometryLayers = geometries)
+## diabetes
+getDiabetes(geometryLayers = geometries)
+## low birth weight 
 getLowBirthWeight(filePath = "data/raw/lowBirthWeight/co_lowbirthweight_births_nosupp_1822.xlsx" ,
                   geometryLayers = geometries)
+
+## life expectancy 
+
+## mental health 
+getMentalHealth(geometryLayers = geometries)
+## pop under 5 
+getUnder5(geometryLayers = geometries)
+
+## pop over 65 
+getOver65(geometryLayers = geometries)
+
 
 
 # demographics score ----
 
+## housing burden 
+getHousingBurden(geometryLayers = geometries)
+
+## percent disability 
+getDisability(geometryLayers = geometries)
+
+## less then high school 
+getHighSchool(geometryLayers = geometries)
+
+## linguistic isolation 
+getLinguisticIsolation(geometryLayers = geometries)
+
+## low income 
+getLowIncome(geometryLayers = geometries)
+
+## people of color 
+getPOC(geometryLayers = geometries)
+  
 
 
 # Component Score Calculations  -------------------------------------------
+## environmental effects 
+getEnvironmentalEffects(geometryLayers = geometries )
+
+## environmental exposures 
+getEnvironmentalExposures(geometryLayers = geometries )
+
+## climate vulnerability 
+getClimate(geometryLayers = geometries)
+
+## sensitive population
+getSensitivePopulation(geometryLayers = geometries)
+
+## demographics 
+getDemographics(geometryLayers = geometries)
 
 
+
+#  Group Component Score Calculations  ------------------------------------
+
+# Enviroscreen Score Calculations  ----------------------------------------
 
 

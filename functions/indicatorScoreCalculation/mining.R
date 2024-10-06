@@ -10,34 +10,33 @@ processMining <- function(data){
   print("reading in reference layers")
   # define the index for the map function
   index <- 1:nrow(data)
-
   # call the calculate score function 
   exportFile <-  "data/products/environmentalEffects/mining/detailsOnDistanceScoring.csv"
-  # if(!file.exists(exportFile)){
-    
-  for(i in index){
-    val <- calculateDistanceScore(index = i,
-                                  sites = data, 
-                                  blockGroupNeighbors= blockGroupNeighbors,
-                                  blocks = blocks )
-    if(i == 1){
-      scores <- val
-    }else{
-      scores <- scores |> bind_rows(val)
+  ## conditional to avoid timely geoprocessing step 
+  if(!file.exists(exportFile)){
+    for(i in index){
+      val <- calculateDistanceScore(index = i,
+                                    sites = data, 
+                                    blockGroupNeighbors= blockGroupNeighbors,
+                                    blocks = blocks )
+      if(i == 1){
+        scores <- val
+      }else{
+        scores <- scores |> bind_rows(val)
+      }
     }
-  }
 
   # export here because this is a big geoprocessing step 
     write.csv(scores, file = "data/products/environmentalEffects/mining/detailsOnDistanceScoring.csv")
-  #   }else{
-  #    scores <- read.csv(exportFile)
-  # }
+    }else{
+     scores <- readr::read_csv(exportFile)
+  }
 
   
   formatedScores <- scores |> 
     # summarize to agggregate measures to the blockGEOID 
-      dplyr::group_by(blockGEOID)|>
-      dplyr::summarise(aggregatedTotalPopScore = sum(totalPopScore),
+      dplyr::group_by(GEOID20)|>
+      dplyr::summarise(aggregatedNoPopScore = sum(nonPopScore),
                        aggregatedPercentPopScore = sum(percentPopScore),
                        numberOfSource = n())
   write.csv(scores, file = "data/products/environmentalEffects/mining/aggratedScoreValues.csv")
@@ -46,9 +45,9 @@ processMining <- function(data){
   # group these by census block group, census tract, county 
   allScores <- formatedScores |> 
     dplyr::mutate(
-      cGEOID = stringr::str_sub(blockGEOID, start = 1, end = 5),
-      ctGEOID = stringr::str_sub(blockGEOID, start = 1, end = 11),
-      bgGEOID = stringr::str_sub(blockGEOID, start = 1, end = 12)
+      cGEOID = stringr::str_sub(GEOID20, start = 1, end = 5),
+      ctGEOID = stringr::str_sub(GEOID20, start = 1, end = 11),
+      bgGEOID = stringr::str_sub(GEOID20, start = 1, end = 12)
     )
   # write.csv(scores, file = "data/products/environmentalEffects/mining/mining_census.csv")
   # 
@@ -56,21 +55,39 @@ processMining <- function(data){
   ## county
   countyScores <- allScores |> 
     dplyr::group_by(cGEOID)|>
-    dplyr::summarise(TotalPopScore = sum(aggregatedTotalPopScore),
+    dplyr::summarise(noPopScore = sum(aggregatedNoPopScore),
                      PercentPopScore = sum(aggregatedPercentPopScore),
-                     numberOfSource = n())
+                     numberOfSource = n())|>
+    dplyr::select(
+      "GEOID" = cGEOID,
+      noPopScore,
+      PercentPopScore,
+      numberOfSource
+    )
   ## censustract 
   censusTractScores <- allScores |> 
     dplyr::group_by(ctGEOID)|>
-    dplyr::summarise(TotalPopScore = sum(aggregatedTotalPopScore),
+    dplyr::summarise(noPopScore = sum(aggregatedNoPopScore),
                      PercentPopScore = sum(aggregatedPercentPopScore),
-                     numberOfSource = n())
+                     numberOfSource = n())|>
+    dplyr::select(
+      "GEOID" = ctGEOID,
+      noPopScore,
+      PercentPopScore,
+      numberOfSource
+    )
   ## census block group 
   censusBlockGroupScores <- allScores |> 
     dplyr::group_by(bgGEOID)|>
-    dplyr::summarise(TotalPopScore = sum(aggregatedTotalPopScore),
+    dplyr::summarise(noPopScore = sum(aggregatedNoPopScore),
                      PercentPopScore = sum(aggregatedPercentPopScore),
-                     numberOfSource = n())
+                     numberOfSource = n())|>
+    dplyr::select(
+      "GEOID" = bgGEOID,
+      noPopScore,
+      PercentPopScore,
+      numberOfSource
+    )
   return(
     list(
       "county" = countyScores,
@@ -119,7 +136,6 @@ getMining <- function(geometryLayers){
   allMining$cbg_geoid <- NA
   
   for(i in 1:length(t1)){
-    print(i)
     index <- cbg$GEOID[t1[[i]]]
     if(identical(index, character(0))){
       allMining$cbg_geoid[i] <- NA
