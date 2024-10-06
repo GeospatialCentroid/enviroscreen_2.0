@@ -1,8 +1,8 @@
 # 
 # filePath <- "data/raw/cancer/CONUS_L50dBA_sumDay_exi.tif"
-# data <- allData
-# geometry <- geometryFiles[[1]]
-# name <- names(geometryFiles)[[1]]
+data <- allData
+geometry <- geometryFiles[[3]]
+name <- names(geometryFiles)[[3]]
 
 processCancer <- function(geometry, name, data){
   
@@ -102,7 +102,7 @@ getCancer <- function(geometryLayers){
   # select geometry layers of interest 
   geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
   # read in data 
-  ## CDC data 
+  ## CDC data --- currently using age adjust prevalence 
   cdcTracts <- read.csv("data/raw/CDC_places/PLACES_Tracts_24_CO.csv")
   cdcCounty <- read.csv("data/raw/CDC_places/PLACES_County_24_CO.csv")
   

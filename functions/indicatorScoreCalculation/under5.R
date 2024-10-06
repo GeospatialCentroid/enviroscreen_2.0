@@ -7,8 +7,10 @@ processUnder5 <- function(geometry, name, data){
   # select the data set of interest 
   vals <- data[[grep(pattern = name, x = names(data))]] |> as.data.frame()
   
+
   # structure then generate and select measures of concern
   output <- structureACS(vals) |>
+    dplyr::group_by(GEOID)|>
     dplyr::mutate(
       age_under5 = sum(B01001_003, B01001_027))|>
     select("GEOID", "age_under5")

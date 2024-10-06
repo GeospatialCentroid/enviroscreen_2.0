@@ -9,6 +9,7 @@ processHighSchool <- function(geometry, name, data){
   
   # structure then generate and select measures of concern
   output <- structureACS(vals) |>
+    dplyr::group_by(GEOID)|>
     dplyr::mutate(
       percent_lths = ifelse(
         B15002_001 == 0,

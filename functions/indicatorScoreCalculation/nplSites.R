@@ -3,7 +3,7 @@
 # geometry <- geometryFiles[[1]]
 # name <- names(geometryFiles)[[1]]
 
-processNPSsites <- function(geometry, name, data){
+processNPLsites <- function(geometry, name, data){
   # select the data set of interest 
   vals <- data[[grep(pattern = name, x = names(data))]] |> as.data.frame()
   
@@ -19,7 +19,7 @@ processNPSsites <- function(geometry, name, data){
 #'
 #' @param geometryLayers : list of spatial object representing the processing levels
 #' 
-getNPSsites <- function(geometryLayers){
+getNPLsites <- function(geometryLayers){
   # select geometry layers of interest 
   geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
   # read in data 
@@ -42,7 +42,7 @@ getNPSsites <- function(geometryLayers){
   # process the datasets 
   results <- purrr::map2(.x = geometryFiles,
                          .y = names(geometryFiles),
-                         .f = processNPSsites,
+                         .f = processNPLsites,
                          data = allData)
   
   for(i in seq_along(results)){

@@ -9,6 +9,7 @@ processLowIncome <- function(geometry, name, data){
   
   # structure then generate and select measures of concern
   output <- structureACS(vals) |>
+    dplyr::group_by(GEOID)|>
     dplyr::mutate(
       percent_lowincome = ifelse(C17002_001 == 0, NA, (C17002_001 - C17002_008) / C17002_001))|>
     select("GEOID", "percent_lowincome")
