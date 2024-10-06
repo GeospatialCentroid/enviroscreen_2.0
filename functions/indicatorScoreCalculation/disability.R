@@ -9,6 +9,7 @@ processDisability <- function(geometry, name, data){
   
   # structure then generate and select measures of concern
   output <- structureACS(vals) |>
+    dplyr::group_by(GEOID)|>
     dplyr::mutate(
       percent_disability = sum(B18101_004, B18101_007,
                                B18101_010, B18101_013,

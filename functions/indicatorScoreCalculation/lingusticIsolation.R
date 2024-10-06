@@ -9,6 +9,7 @@ processLinguisticIsolation <- function(geometry, name, data){
   
   # structure then generate and select measures of concern
   output <- structureACS(vals) |>
+    dplyr::group_by(GEOID)|>
     dplyr::mutate(
       percent_lingiso = ifelse(
         C16002_001 == 0,
