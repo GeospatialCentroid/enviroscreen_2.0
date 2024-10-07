@@ -8,7 +8,8 @@
 
 # source libraries ---
 pacman::p_load(terra, dplyr, stringr, sf, tidycensus,
-               sfdep, tigris, tmap, readr, readxl,R.utils, vroom)
+               sfdep, tigris, tmap, readr, readxl,R.utils, vroom,
+               lubridate)
 tmap_mode("view")
 ## alt ; install you census api key if you want or provide as parameter in functions 
 # tidycensus::census_api_key(key = "your key",
