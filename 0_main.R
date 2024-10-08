@@ -62,38 +62,38 @@ vals <- readRDS("data/processed/geographies/bgNeighbors.RDS")
 ### both the ejscreen dataset and acs data have indicators in multiple component score measures 
 ### as a result these will be processed in a single script and write to their specific locations 
 ## EJScreen Data 
+getEJscreen(geometryLayers = geometries, overwrite = FALSE)
 
 # ACS data 
 getACS(geometryLayers = geometries , overwrite =FALSE)
 
 # Environmental Exposures ----
-getEJscreen(geometryLayers = geometries, overwrite = TRUE)
-
-## air toxics 
-### 1.0 method
+## air toxics  
+getAir(filePath = "data/raw/haps/APENS_7_15_2024.xlsx",
+       geometryLayers = geometries)
 
 ## diesel pm 
 getDiesel(geometryLayers = geometries)
 
 ## drinking water 
-### 1.0 method
+getDrinkingWater(geometryLayers = geometries)
 
 ## lead 
 ### ACS data --- what is used to call this measures? 
+getLead(geometryLayers = geometries)
 
 ## noise 
 getNoise(filePath = "data/raw/noise/CONUS_L50dBA_sumDay_exi.tif",
          geometryLayers = geometries)
 
 ## other air pollutants 
-### 1.0 method
+getOtherAir(filePath = "data/raw/haps/APENS_7_15_2024.xlsx",
+            geometryLayers = geometries)
 
 ## ozone 
-### 1.0 method
 getOzone(filePath = "data/raw/epa_cmaq/2021_ozone_daily_8hour_maximum.txt.gz",
          geometryLayers = geometries)
 ## pm2.5 
-### 1.0 method
 getPM25(filePath = "data/raw/epa_cmaq/2021_pm25_daily_average.txt.gz",
         geometryLayers = geometries)
 
@@ -102,10 +102,10 @@ getTraffic(geometryLayers = geometries)
 
 # environmental Effects ---- 
 ## impaired streams 
-### cdphe method 
+### cdphe
+
 
 ## hazardous waste 
-### ejscreen 
 getHazardousWaste(geometryLayers = geometries)
 
 ## mining
@@ -113,14 +113,13 @@ getMining(geometryLayers = geometries)
 
 ## NPL sites 
 getNPSsites(geometryLayers = geometries)
+
 ## oil and gas 
-### buffer method 
 
 ## RMP sites 
-### ejscreen 
 getRMPsites(geometryLayers = geometries)
+
 ## wastewater discharge
-### ejscreen 
 getWasteWater(geometryLayers = geometries)
 
 

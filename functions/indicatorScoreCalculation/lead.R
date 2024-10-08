@@ -8,8 +8,11 @@ processLead <- function(geometry, name, data){
   vals <- data[[grep(pattern = name, x = names(data))]] |> as.data.frame()
   
   # structure then generate and select measures of concern
-  output <- vals |> 
-    select("GEOID", "leadPM")
+  output <-  structureACS(vals)|>
+    dplyr::group_by(GEOID)|>
+    dplyr::mutate(
+      lead = sum(B25034_009,B25034_010,B25034_011)/B25034_001)|>
+    select("GEOID", "lead")
   #export 
   return(output)
 }
@@ -23,7 +26,7 @@ getLead <- function(geometryLayers){
   # select geometry layers of interest 
   geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
   # read in data 
-  data <- list.files("data/processed/ejscreen",pattern = ".csv",full.names = TRUE)
+  data <- list.files("data/processed/acs",pattern = ".csv",full.names = TRUE)
   # organize for the function
   allData <- list(
     county = read_csv(data[grepl(pattern = "county", x = data)]),

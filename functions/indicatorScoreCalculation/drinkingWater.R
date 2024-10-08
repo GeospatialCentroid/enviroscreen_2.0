@@ -1,8 +1,8 @@
 # 
 # filePath <- "data/raw/drinkingWater/CONUS_L50dBA_sumDay_exi.tif"
-data <- allData
-geometry <- geometryFiles[[2]]
-name <- names(geometryFiles)[[2]]
+# data <- allData
+# geometry <- geometryFiles[[2]]
+# name <- names(geometryFiles)[[2]]
 
 processDrinkingWater <- function(geometry, name, data){
   # rename id variable 
