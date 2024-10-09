@@ -67,7 +67,7 @@ getEJscreen(geometryLayers = geometries, overwrite = FALSE)
 # ACS data 
 getACS(geometryLayers = geometries , overwrite =FALSE)
 
-# Environmental Exposures ----
+## Environmental Exposures ----
 ## air toxics  
 getAir(filePath = "data/raw/haps/APENS_7_15_2024.xlsx",
        geometryLayers = geometries)
@@ -100,10 +100,10 @@ getPM25(filePath = "data/raw/epa_cmaq/2021_pm25_daily_average.txt.gz",
 ## traffic 
 getTraffic(geometryLayers = geometries)
 
-# environmental Effects ---- 
+## environmental Effects ---- 
 ## impaired streams 
-### cdphe
-
+getStreams(filePath = "data/raw/surfaceWater/streams_303d_2024.shp",
+           geometryLayers = geometries)
 
 ## hazardous waste 
 getHazardousWaste(geometryLayers = geometries)
@@ -115,6 +115,7 @@ getMining(geometryLayers = geometries)
 getNPSsites(geometryLayers = geometries)
 
 ## oil and gas 
+getOilAndGas(geometryLayers = geometries)
 
 ## RMP sites 
 getRMPsites(geometryLayers = geometries)
@@ -123,7 +124,7 @@ getRMPsites(geometryLayers = geometries)
 getWasteWater(geometryLayers = geometries)
 
 
-# climate vulnerability ----
+## climate vulnerability ----
 ## drought 
 getDrought(filePath = "data/raw/drought/dm_export_20190101_20231231.csv",
            geometryLayers = geometries)
@@ -139,7 +140,7 @@ getWildfire(filePath = "data/raw/wildfireRisk/Data/whp2023_GeoTIF/whp2023_cnt_co
 
 
 
-# sensitive populations ----
+## sensitive populations ----
 ## asthma 
 getAsthma(filePath = "data/raw/asthma/co_asthma_hospitalization_nosupp_1822.csv",
           geometryLayers = geometries)
@@ -154,6 +155,8 @@ getLowBirthWeight(filePath = "data/raw/lowBirthWeight/co_lowbirthweight_births_n
                   geometryLayers = geometries)
 
 ## life expectancy 
+getLifeExpectency(filePath = "data/raw/lifeExpectancy/U.S._Life_Expectancy_at_Birth_by_State_and_Census_Tract_-_2010-2015_20240703.csv",
+                  geometryLayers = geometries)
 
 ## mental health 
 getMentalHealth(geometryLayers = geometries)
@@ -165,7 +168,7 @@ getOver65(geometryLayers = geometries)
 
 
 
-# demographics score ----
+## demographics score ----
 
 ## housing burden 
 getHousingBurden(geometryLayers = geometries)
@@ -206,6 +209,9 @@ getDemographics(geometryLayers = geometries)
 
 
 #  Group Component Score Calculations  ------------------------------------
+getHealthAndSocial(geometryLayers = geometries)
+
+getPollutionAndClimate(geometryLayers = geometries)
 
 # Enviroscreen Score Calculations  ----------------------------------------
 

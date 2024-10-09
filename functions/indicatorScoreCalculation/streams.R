@@ -17,11 +17,17 @@ processStreams <- function(geometry, name, data){
       AQLifeUse = ifelse(AQLife == "NA", 0, 1),
       RecUse = ifelse(Rec == "NA", 0, 1),
       WSUse = ifelse(WS == "NA", 0, 1),
-      TotalUses = AgUse+AQLifeUse+RecUse+WSUse,
-      # Impairment
-      # ImpairedUse = ifelse(X303d_Uses_ > 0, 1, 0), # this category is current not in the datasets ask rani 
-      # ImpairedUse_char = as.character(ImpairedUse),
-      # PercentUsesImpaired = 100*X303d_Uses_/TotalUses,
+      TotalUses = AgUse+AQLifeUse+RecUse+WSUse)|>
+    mutate( # imparment 
+      impairedUse = ifelse(Cat == "5", 1, 0), # if the Cat == 5 then it has 303d impaired sections 
+      AgImpaired = ifelse(Ag == "N", 1, 0),
+      AQLifeImpaired = ifelse(AQLife == "N", 1, 0),
+      RecImpaired = ifelse(Rec == "N", 1, 0),
+      WSImpaired = ifelse(WS == "N", 1, 0),
+      TotalImpaired = AgImpaired+AQLifeImpaired+RecImpaired+WSImpaired,
+      PercentUsesImpaired = 100*TotalImpaired/TotalUses,
+    ) |>
+    dplyr::mutate(
       # Assessment status
       AgAssessed = ifelse(Ag == "X"| Ag == "NA", 0, 1),
       AQLifeAssessed = ifelse(AQLife == "X"| AQLife == "NA", 0, 1),
@@ -30,96 +36,74 @@ processStreams <- function(geometry, name, data){
       TotalAssessed = AgAssessed+AQLifeAssessed+RecAssessed+WSAssessed,
       Assessed = ifelse(TotalAssessed > 0, 1, 0),
       Assessed_char = as.character(Assessed))
+
+
+  #### Overlay streams and geographic boundaries ----
+  geometry <- geometry|>
+    st_transform(crs = st_crs(stream_uses))|>
+    select("GEOID")
   
   
+  # dataframe for holding results 
+  geom <- data.frame(matrix(nrow = nrow(geometry), ncol = 3))
+  names(geom) <- c("GEOID", "AvgPercentImpaired", "PcntUnassessed")
+  for(i in seq_along(geometry$GEOID)){
+    print(i)
+    # assign geoid 
+    g1 <- geometry[i, ]
+    geom$GEOID[i] <- g1$GEOID
   
-  
-  
-  
-  
-  
-  
-  
-  
-  # Using the county level prevalance data for all grographies 
-  d1 <- data$county |>
-    dplyr::filter(Measure =="Streams (non-skin) or melanoma among adults",
-                  Data_Value_Type == "Age-adjusted prevalence" )|>
-    dplyr::mutate(GEOID = paste0("0",LocationID))|>
-    dplyr::select(
-      GEOID,
-      adj_rate_Prevalence = Data_Value
-    )
-  
-  
-  # process based on geography 
-  if(name == "county"){
-    
-    # mortality data
-    d2 <- data$mortality |>
-      dplyr::filter(geog == "County")|>
-      dplyr::mutate(
-        GEOID = paste0("0", geoid),
-        adj_rate = as.numeric(adj_rate)
-      )|>
-      dplyr::select(
-        GEOID,
-        "adj_rate_mortality" = adj_rate
-      )
-    
-    # join datasets and normalize the distributions 
-    output <- d1 |>
-      dplyr::left_join(d2, by = "GEOID")|>
-      dplyr::mutate(
-        streamsPrevalence_pcntl = cume_dist(adj_rate_Prevalence)*100,
-        streamsMortality_pcntl = cume_dist(adj_rate_mortality )*100
-      ) |>
-      dplyr::select("GEOID","adj_rate_Prevalence","adj_rate_mortality","streamsPrevalence_pcntl", "streamsMortality_pcntl" )
-  }
-  # condition for census tract and census block group 
-  if(name != "county"){
-    # process the datasets 
-    
-    # mortality 
-    d2 <- data$mortality |>
-      dplyr::filter(geog == "Census tract")|>
-      dplyr::mutate(
-        GEOID = paste0("0", geoid)
-      )|>
-      dplyr::select(
-        GEOID,
-        "adj_rate_mortality" = adj_rate
-      )
-    # set county FIPS for join 
-    d2$geoid2 <- stringr::str_sub(d2$GEOID, start = 1, end = 5)
-    
-    # join datasets 
-    ## need to add a county GEOID to make the 
-    output <- d2 |>
-      dplyr::left_join(d1, by = c("geoid2" = "GEOID"))|>
-      dplyr::mutate(
-        streamsPrevalence_pcntl = cume_dist(adj_rate_Prevalence)*100,
-        streamsMortality_pcntl = cume_dist(adj_rate_mortality )*100
-      )|>
-      dplyr::select("GEOID","adj_rate_Prevalence","adj_rate_mortality","streamsPrevalence_pcntl", "streamsMortality_pcntl" )
-    
-    
-    # assign output based on geography name 
-    if(name == "censusBlockGroup"){
-      geometry$geoid2 <- str_sub(string = geometry$GEOID, start = 1, end = 11)
-      # join to output and reformat
-      output <- geometry |>
-        sf::st_drop_geometry()|>
-        dplyr::left_join(y =  output, by = c("geoid2"= "GEOID"))|>
-        dplyr::select("GEOID","adj_rate_Prevalence","adj_rate_mortality","streamsPrevalence_pcntl", "streamsMortality_pcntl" )
+    # crop 
+    cropStreams <- sf::st_crop(stream_uses,g1)
+    #intersect
+    overlay <- st_intersection(cropStreams, g1) # very slow  
+    # test for now streams in area 
+    if(nrow(overlay)==0){
+      geom$AvgPercentImpaired[i] <- NA
+      geom$PcntUnassessed[i] <- NA
+    }else{
+      overlay$seglength <- st_length(overlay)
+      
+      # generate the measures 
+      d1 <-  overlay|>
+        sf::st_drop_geometry()|> # drop stream segment geometry for faster processing.
+        dplyr::mutate(
+          #convert segment length in meters to miles
+          stream_mi = as.numeric(seglength)*0.000621,
+          
+          # Calculate the numerator for average percent impaired:
+          # Stream segment length multiplied by the percent of uses impaired.
+          # These will be added together for the entire county in the
+          # "summarise" step below.
+          numerator_impaired = stream_mi*(PercentUsesImpaired/100),
+          
+          # Calculate the numerator for percent unassessed
+          # Stream segment length for completely unassessed streams.
+          # These will be added together for the entire county in the
+          # "summarise" step below.
+          numerator_completelyunassessed = ifelse(Assessed == 0, stream_mi, 0))|>
+          dplyr::summarise(TotalStreamLengthMi = sum(stream_mi, na.rm = TRUE),
+                         numerator_impaired = sum(numerator_impaired, na.rm = TRUE),
+                         numerator_completelyunassessed = sum(numerator_completelyunassessed, na.rm = TRUE))|>
+        ## because we are working on single counties we can not apply percent rank function until alfter all geometries
+        ## have been resolved.
+          mutate(AvgPercentImpaired = numerator_impaired/TotalStreamLengthMi,
+                 PcntUnassessed = 100*numerator_completelyunassessed/TotalStreamLengthMi
+        )
+      
+      geom$AvgPercentImpaired[i] <- d1$AvgPercentImpaired
+      geom$PcntUnassessed[i] <- d1$PcntUnassessed
     }
   }
-  
-  # output
-  output <- output |>
-    dplyr::rowwise()|>
-    dplyr::mutate(combinedStreams = mean(c(streamsPrevalence_pcntl,streamsMortality_pcntl)))|>
-    dplyr::select("GEOID", "combinedStreams")
+    # format for export 
+    output <- geom |>
+      dplyr::mutate(
+        ImpairedPctl = percent_rank(AvgPercentImpaired)*100,
+        UnassessedPctl = percent_rank(PcntUnassessed)*100,
+        CombinedMetric = ImpairedPctl + UnassessedPctl/2) |>
+      dplyr::select(
+        "GEOID", "surfaceWater"= "CombinedMetric"
+      )
   
   return(output)
 }
@@ -133,7 +117,7 @@ processStreams <- function(geometry, name, data){
 #' @param geometryLayers : list of spatial object representing the processing levels
 #' @return : a list of results at the three processing levels. -- think about if this is needed out not
 #' 
-getStreams <- function(geometryLayers, filePath){
+getStreams <- function(filePath,geometryLayers){
   # select geometry layers of interest 
   geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
   # read in data 

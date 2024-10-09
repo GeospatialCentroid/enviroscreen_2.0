@@ -6,101 +6,137 @@
 
 # 
 # filePath <- "data/raw/lifeExpectancy/U.S._Life_Expectancy_at_Birth_by_State_and_Census_Tract_-_2010-2015_20240703.csv"
+# data <- d1
 # geometryLayers <- geometries
-# 
 # geometry <- geometryFiles[1]
 
-processlifeExectancy <- function(geometry, data){
+processlifeExectancy <- function(data){
   # this is a terrible data format... doing some adjustments
   coData <- data |>
     dplyr::filter(State == "Colorado") |>
     dplyr::filter(County != "(blank)") |> 
-    dplyr::mutate(county = stringr::str_replace_all(string = County , pattern = " County, CO", replacement = ""))|>
+    dplyr::mutate(county = stringr::str_replace_all(string = County ,
+                                                    pattern = " County, CO",
+                                                    replacement = "")) |>
+    #               # "Census Tract Number" = sprintf("%.2f", as.numeric(`Census.Tract.Number`)))|>
+    # "Census Tract Number" = as.character(`Census.Tract.Number`))|>
     dplyr::select(
-      "State","county", "Census.Tract.Number","Life.Expectancy", "Life.Expectancy.Standard.Error" 
+      "State",
+      "county",
+      "Census.Tract.Number",
+      "Life.Expectancy", "Life.Expectancy.Standard.Error" 
+    ) |>
+    dplyr::mutate(
+      ctn = as.character(Census.Tract.Number),
+      exactCTN = sprintf("%.2f", as.numeric(`Census.Tract.Number`))
     )
   
-  name <- names(geometry)
+  # construct the FIPS based GEOID 
+  county <- sf::st_read("data/processed/geographies/county.gpkg")
+  censusBlockGroup <- sf::st_read("data/processed/geographies/censusBlockGroup.gpkg")
+  censusTract <- sf::st_read("data/raw/censusTract.gpkg")|>
+    st_drop_geometry()|>
+    dplyr::select(
+      "STATEFP",
+      "COUNTYFP",
+      "TRACTCE",  
+      "GEOID",
+      "NAME",
+      "NAMELSAD",
+      "INTPTLAT", 
+      "INTPTLON"
+    )|>
+    sf::st_as_sf(coords = c("INTPTLON", "INTPTLAT"), crs = 4269)
+  # 2010 data
+  censusTract2010 <- sf::st_read("data/raw/censusTract2010.gpkg")|>
+    dplyr::select("STATEFP10",
+                  "COUNTYFP10",
+                  "TRACTCE10",
+                  "GEOID10",
+                  "NAME10",
+                  "NAMELSAD10")
+  # intersect the 2020 centroids with the 2010 areas to get the 2010 GEOID 
+  d1 <- sf::st_intersects(x = censusTract, y = censusTract2010,sparse = TRUE) |> unlist()
+  # add the column to the 2020 dataset 
+  censusTract$GEOID2010 <- censusTract2010$GEOID10[d1]
+  # drop spatial elements 
+  censusTract2010 <- st_drop_geometry(censusTract2010)
+  censusTract <- st_drop_geometry(censusTract)
   
-  if(name == "county"){
-    # read in county reference layer for GEOID
-    countyRef <- sf::st_read("data/processed/geographies/county.gpkg")|>
-      sf::st_drop_geometry()
-    # filter the life expectence data and summarize 
-    county <- coData |>
-      dplyr::group_by(county)|>
-      dplyr::summarise(aveLifeExpectancy = mean(Life.Expectancy, na.rm=TRUE))
-    # join to reference layer 
-    output <- countyRef |>
-      dplyr::left_join(y = county, by = c("NAME" = "county"))
-    return(list(
-      name = output
-      ))
+  
+  # the census tract id here is 
+  lifeData <- dplyr::left_join(x = coData, 
+                               y = county,
+                               by = c("county"="NAME"))|>
+    dplyr::mutate(countyGEOID = str_sub(string = GEOID, start = 3,end = 5))
+  
+  lifeData$ctGEOID <- NA
+  # itorate through the options and assing a censustract ID 
+  for(i in seq_along(lifeData$Census.Tract.Number)){
+    print(i)
+    t1 <- lifeData[i, ]
+    cID <- t1$countyGEOID
+    # exact value 
+    tID <- t1$exactCTN
+    # shorterned value 
+    sID <- t1$ctn
+    
+    # filter census tract data to count 
+    ct1 <- dplyr::filter(.data = censusTract2010, COUNTYFP10 == cID)
+    # test for exact match on
+    ct2 <- dplyr::filter(ct1, NAME10 == tID)
+    if(nrow(ct2)==1){
+      lifeData[i, "ctGEOID"] <- ct2$GEOID10 
+    }else{
+      ct3 <- dplyr::filter(ct1, NAME10 == sID)
+      if(nrow(ct3)==1){
+        lifeData[i, "ctGEOID"] <- ct3$GEOID10 
+      }
+    }
   }
+  
+  # convert to 2020 censustract data 
+  ## attempt a join 
+  ct2022 <- dplyr::left_join(censusTract, lifeData, by = c("GEOID2010"= "ctGEOID"), keep = TRUE)
+  
+  finalVals <- ct2022 |>
+    dplyr::select(
+      "ctGEOID" = GEOID.x, 
+      "Life.Expectancy")|>
+    dplyr::mutate(
+      cGEOID = stringr::str_sub(ctGEOID, start = 1, end = 5)) 
+
+  # county
+  countyVals <- finalVals |>
+    dplyr::group_by(cGEOID)|>
+    dplyr::summarise(lifeExpectancy = mean(Life.Expectancy, na.rm = TRUE))|>
+    dplyr::select("GEOID" = cGEOID, lifeExpectancy)
+  # census tract 
+  ctVals <- finalVals |>
+    dplyr::select("GEOID" = ctGEOID, 
+                  lifeExpectancy = Life.Expectancy)
+  # census blocks 
+  cbgVals <- censusBlockGroup |>
+    st_drop_geometry()|>
+    dplyr::mutate(GEOID = stringr::str_sub(GEOID, start = 1, end = 11))|>
+    dplyr::left_join(finalVals, by = c("GEOID" = "ctGEOID"))|>
+    dplyr::select("GEOID",
+                  lifeExpectancy = Life.Expectancy)
+  
+  
+  return(
+    list(
+      "county" = countyVals,
+      "censusTract" = ctVals,
+      "censusBlockGroup" = cbgVals
+    )
+  )
 }
-
-# file <- paste0(dir, "/",processingLevel,"_lifeExpectency.csv")
-# if(file.exists(file) & isFALSE(overwrite)){
-#   geom <- read_csv(file)
-# }else{
-#   g1 <- setSpatialData(processingLevel = "county")
-#   
-#   # read in data, filter to colorado, and separate county character column to facilitate join
-#   d1 <- readr::read_csv(filePath) ## read r keeps the leading zeros
-#   colnames(d1)[1] <- "State"
-#   
-#   d1 <- d1 %>%
-#     dplyr::filter(`State` == "Colorado",!is.na(`Census Tract Number`))%>%
-#     tidyr::separate(County, c("County", NA), sep = ",")%>%
-#     # join on the county geom feature to grab GEOID to complete future joins
-#     dplyr::left_join(y = g1, by = c("County" = "NAMELSAD"))%>%
-#     # select significant columns.
-#     dplyr::select(County, `Census Tract Number`,`Life Expectancy`,
-#                   GEOID)%>%
-#     dplyr::mutate(`Census Tract Number` = sprintf("%.2f", as.numeric(`Census Tract Number`)))
-#   
-#   # Life Exp data is at the census tract level, need to join data to CT geometry to get full GEOID
-#   g2 <- setSpatialData(processingLevel = "censusTract")%>%
-#     # create a second geoid to join on county level
-#     dplyr::mutate(GEOID2 = stringr::str_sub(GEOID, 1,5),
-#                   NAME = sprintf("%.2f", as.numeric(NAME)))
-#   # Join data base on count match and census tract match, grab full geoid and output value
-#   ## this is because census tract number is unqiue to county only
-#   d1a <- dplyr::left_join(d1, g2, by= c("GEOID" = "GEOID2",
-#                                         "Census Tract Number" = "NAME"))%>%
-#     dplyr::select(GEOID = `GEOID.y`,`Life Expectancy`)
-#   
-#   
-#   #The data structure hear matchs most other datasets, so apply similar process
-#   ### select processing level by comparing length of GEOID between objects
-#   if(nchar(geometry$GEOID[1]) >= nchar(d1a$GEOID[1])){
-#     #add tract-level column to use as join then keep original geoid (tract or block)
-#     geom <- st_drop_geometry(geometry) %>%
-#       dplyr::mutate(GEOID2 = str_sub(GEOID, start = 1, end = 11)) %>%
-#       dplyr::left_join(d1a, by =  c("GEOID2" = "GEOID")) %>%
-#       dplyr::select(GEOID, lifeExpectancy = `Life Expectancy`)
-#   }else{
-#     # when geometry is county level.. just cut FIPS to county level and group by that
-#     geom <-  d1a %>%
-#       dplyr::mutate(GEOID = str_sub(GEOID, start = 1, end = 5))%>%
-#       dplyr::group_by(GEOID) %>%
-#       dplyr::summarise(lifeExpectancy = mean(`Life Expectancy`, na.rm = TRUE))
-#   }
-#   # replace all NaN with NA
-#   geom$lifeExpectancy[is.nan(geom$lifeExpectancy)] <- NA
-#   
-#   write_csv(x = geom,file = file)
-# }
-
-
-
-
-
 
 
 
 ### set parameters for testings 
-# lifeExectancyLayer <- "data/lifeExpectancy/U.S._Life_Expectancy_at_Birth_by_State_and_Census_Tract_-_2010-2015Colorado.csv"
+filePath <- "data/raw/lifeExpectancy/U.S._Life_Expectancy_at_Birth_by_State_and_Census_Tract_-_2010-2015_20240703.csv"
 # geometryLayers <- geometries
 
 getLifeExpectency <- function(filePath, geometryLayers){
@@ -117,14 +153,12 @@ getLifeExpectency <- function(filePath, geometryLayers){
   }
   
   # render the results at the given spatial scales 
-  results <- purrr::map(.x = geometryFiles,
-                         .f = processlifeExectancy,
-                         data = d1)
+  results <- processlifeExectancy(data = d1)
   # export those results
   for(i in seq_along(results)){
     data <- results[[i]]
     name <- names(results)[i]
-    write.csv(x = data, file = paste0(exportDir,"/noise_", name , ".csv"))
+    write.csv(x = data, file = paste0(exportDir,"/lifeExectancy_", name , ".csv"))
   }
   
   #output the object

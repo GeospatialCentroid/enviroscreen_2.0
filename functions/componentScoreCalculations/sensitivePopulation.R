@@ -30,6 +30,11 @@ processSensitivePopulation <- function(geometry, name, data){
              .fns = list(pcntl = ~cume_dist(.)*100),
              .names = "{col}_{fn}")
     )
+  
+  output$sensitivePopulation <- output |>
+    dplyr::select(contains("_pcntl"))|>
+    apply(MARGIN = 1, FUN = gm_mean)
+  
   # not super happy with the column naming at the moment
   
   #export 

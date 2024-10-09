@@ -32,6 +32,9 @@ processEnvironmentalEffects <- function(geometry, name, data){
              .names = "{col}_{fn}")
     )
   # not super happy with the column order at the moment
+  output$environmentalEffects <- output |>
+    dplyr::select(contains("_pcntl"))|>
+    apply(MARGIN = 1, FUN = gm_mean)
   
   #export 
   return(output)

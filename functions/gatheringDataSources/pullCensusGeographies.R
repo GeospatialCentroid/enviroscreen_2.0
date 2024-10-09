@@ -10,6 +10,7 @@ pullCensusGeographies <- function(overwrite = FALSE){
   state <- "data/raw/state.gpkg"
   county <- "data/raw/county.gpkg"
   censusTract <- "data/raw/censusTract.gpkg"
+  censusTract2010 <- "data/raw/censusTract2010.gpkg"
   censusBlockGroups <- "data/raw/censusBlockGroups.gpkg"
   censusBlocks <- "data/raw/censusBlocks.gpkg"
   
@@ -36,6 +37,15 @@ pullCensusGeographies <- function(overwrite = FALSE){
     # export 
     sf::st_write(censusTractData, dsn = path, delete_layer = TRUE,quiet = TRUE)
   }
+  # second census tract for life expectancy data 
+  getcensusTract <- function(path){
+    # download state 
+    censusTractData <- tigris::tracts(state = "08", year = 2010)
+    # export 
+    sf::st_write(censusTractData, dsn = path, delete_layer = TRUE,quiet = TRUE)
+  }
+  
+  
   # census Block Groups 
   getcensusBlockGroups <- function(path){
     # download state 
@@ -59,6 +69,8 @@ pullCensusGeographies <- function(overwrite = FALSE){
     getCounty(path = county)
     print("grabbing census tract")
     getcensusTract(path = censusTract)
+    print("grabbing census tract 2010")
+    getcensusTract(path = censusTract2010)
     print("grabbing census block group")
     getcensusBlockGroups(path = censusBlockGroups)
     print("grabbing census blocks")
