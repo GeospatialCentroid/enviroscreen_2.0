@@ -1,7 +1,7 @@
 #
-# data <- allData
-# geometry <- geometryFiles[[1]]
-# name <- names(geometryFiles)[[1]]
+data <- allData
+geometry <- geometryFiles[[1]]
+name <- names(geometryFiles)[[1]]
 
 processHealthAndSocial <- function(geometry, name, data){
   # select the data set of interest

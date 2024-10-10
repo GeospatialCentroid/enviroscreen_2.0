@@ -23,14 +23,25 @@ processDemoGraphics <- function(geometry, name, data){
     geom <- geom |>
       dplyr::left_join(y = d1, by = "GEOID")
   }
+  
+  
   # generate the percentile score  
   output <- geom |>
+    dplyr::select(
+      "GEOID",
+      "Housing cost burden" = "HH_Burdened_Pct",
+      "Percent disability" = "percent_disability",
+      "Percent less than high school education" = "percent_lths",
+      "Percent linguistic isolation" = "percent_lingiso",
+      "Percent low income" =  "percent_lowincome",
+      "Percent people of color" = "percent_minority"
+    )|>
     dplyr::mutate(
       across(where(is.numeric),
              .fns = list(pcntl = ~cume_dist(.)*100),
              .names = "{col}_{fn}")
     )
-  # not super happy with the column naming at the moment
+  # appply percentile calculations 
   output$demograpics <- output |>
     dplyr::select(contains("_pcntl"))|>
     apply(MARGIN = 1, FUN = gm_mean)

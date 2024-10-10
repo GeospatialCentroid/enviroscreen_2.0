@@ -1,7 +1,7 @@
 # 
 # data <- allData
-# geometry <- geometryFiles[[1]]
-# name <- names(geometryFiles)[[1]]
+# geometry <- geometryFiles[[3]]
+# name <- names(geometryFiles)[[3]]
 
 processEnvironmentalExposures <- function(geometry, name, data){
   # select the data set of interest 
@@ -25,6 +25,20 @@ processEnvironmentalExposures <- function(geometry, name, data){
   }
   # generate the percentile score  
   output <- geom |>
+    dplyr::select(
+      "GEOID",
+      "Air toxics emissions" = "PercentPopScore.x",
+      "Diesel particulate matter" = "dieselPM",
+      "Drinking water regulations" = "Percentile",
+      "Lead exposure risk" = "lead",
+      "Noise" = "noise",
+      "Other air pollutants"  = "PercentPopScore.y",        
+      "Ozone" = "ozone_mean",
+      "Fine particle pollution" = "pm25_mean",
+      "Traffic proximity and volume"= "traffic"      
+    ) 
+  
+  |>
     dplyr::mutate(
       across(where(is.numeric),
              .fns = list(pcntl = ~cume_dist(.)*100),

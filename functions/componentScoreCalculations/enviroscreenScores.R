@@ -1,7 +1,7 @@
 #
 # data <- allData
-# geometry <- geometryFiles[[1]]
-# name <- names(geometryFiles)[[1]]
+# geometry <- geometryFiles[[2]]
+# name <- names(geometryFiles)[[2]]
 
 processEnviroScreen <- function(geometry, name, data){
   # select the data set of interest
@@ -10,28 +10,74 @@ processEnviroScreen <- function(geometry, name, data){
   v1 <- read_csv(vals[grepl(pattern = "HealthAndSocial", x = vals )])|>
     dplyr::select(
       "GEOID",
-      "percent_disability","percent_disability_pcntl",
-      "percent_lths","percent_lingiso_pcntl",
-      "percent_lingiso","percent_lths_pcntl",
-      "percent_lowincome","percent_lowincome_pcntl",
-      "percent_minority","percent_minority_pcntl",
-      "demograpics",
-      "asthma","asthma_pcntl",
-      "combinedCancer","combinedCancer_pcntl",
-      "combinedDiabetes","combinedDiabetes_pcntl",
-       "combinedHeart","combinedHeart_pcntl",
-      "lifeExpectancy","lifeExpectancy_pcntl",
-      "lowBirthRate",   "lowBirthRate_pcntl",
-      "age_over65", "age_over65_pcntl",
-      "age_under5", "age_under5_pcntl" ,
-       "sensitivePopulation",
-       "popCharacteristic"
+      "Housing cost burden", "Housing cost burden_pcntl",
+      "Percent disability","Percent disability_pcntl",
+      "Percent less than high school education","Percent less than high school education_pcntl",
+      "Percent linguistic isolation","Percent linguistic isolation_pcntl",                  
+      "Percent low income","Percent low income_pcntl",  
+      "Percent people of color","Percent people of color_pcntl", 
+      "demograpics",                                                                         
+      "Asthma","Asthma_pcntl",
+      "Cancer","Cancer_pcntl",
+      "Diabetes","Diabetes_pcntl",
+      "Cadiovascular","Cadiovascular_pcntl", 
+      "Life expectancy","Life expectancy_pcntl",
+      "Low birth weight","Low birth weight_pcntl",                       
+      "Mental health","Mental health_pcntl",
+      "Population over 64","Population over 64_pcntl",
+      "Population under 5","Population under 5_pcntl",
+      "sensitivePopulation",
+      "popCharacteristic"
     ) |>
     dplyr::mutate(
       scaledpopCharacteristic = popCharacteristic/max(popCharacteristic)*10
     )
   # enviromental effects
-  v2 <- read_csv(vals[grepl(pattern = "PollutionAndClimate", x = vals )])
+  v2 <- read_csv(vals[grepl(pattern = "PollutionAndClimate", x = vals )])|>
+    dplyr::select(
+      "GEOID",                                             
+      "Air toxics emissions","Air toxics emissions_pcntl",                             
+      "Diesel particulate matter","Diesel particulate matter_pcntl",                          
+      "Drinking water regulations","Drinking water regulations_pcntl",                       
+      "Lead exposure risk", "Lead exposure risk_pcntl",                               
+      "Noise", "Noise_pcntl",                                           
+      "Other air pollutants", "Other air pollutants_pcntl",                              
+      "Ozone", "Ozone_pcntl",                                            
+      "Fine particle pollution", "Fine particle pollution_pcntl",                           
+      "Traffic proximity and volume", "Traffic proximity and volume_pcntl",                    
+      "environmentalExposures",                           
+      "Proximity to hazardous waste facilities", "Proximity to hazardous waste facilities_pcntl",          
+      "Proximity to mining locations", "Proximity to mining locations_pcntl",             
+      "Proximity to National Priorities List sites", "Proximity to National Priorities List sites_pcntl",     
+      "Proximity to oil and gas", "Proximity to oil and gas_pcntl",                        
+      "Proximity to Risk Management Plan sites", "Proximity to Risk Management Plan sites_pcntl",         
+      "Impaired streams and rivers", "Impaired streams and rivers_pcntl",                      
+      "Wastewater discharge", "Wastewater discharge_pcntl",                              
+      "environmentalEffects",                             
+      "Drought", "Drought_pcntl",                                          
+      "Floodplains", "Floodplains_pcntl",                                      
+      "Extreme heat days", "Extreme heat days_pcntl",                               
+      "Wildfire risk", "Wildfire risk_pcntl",                                     
+      "climateVulnerability",                            
+      "pollutionClimateBurden" 
+      ) |>
+    dplyr::mutate(
+      scaledpollClimate = pollutionClimateBurden/max(pollutionClimateBurden)*10
+    )
+  #bind datasets 
+  output <- dplyr::left_join(v1, v2, by = "GEOID")|>
+    dplyr::mutate(
+      finalScore = scaledpollClimate * scaledpopCharacteristic,
+      envExp_Pctl = cume_dist(environmentalExposures)*100,
+      envEff_Pctl = cume_dist(environmentalEffects)*100,
+      climate_Pctl = cume_dist(climateVulnerability)*100,
+      senPop_Pctl = cume_dist(sensitivePopulation)*100,
+      socEco_Pctl = cume_dist(demograpics)*100,
+      pollClimBurden_Pctl = cume_dist(pollutionClimateBurden)*100,
+      popCharacteristic_Pctl = cume_dist(popCharacteristic)*100,
+      finalScore_Pctl = cume_dist(finalScore)*100,
+    )
+
   
   #export
   return(output)

@@ -27,6 +27,8 @@ processAsthma <- function(geometry, name, data){
         dplyr::select(GEOID, asthma = adj_rate)
     }
   
+  # issues 
+  
   return(output)
 }
 
@@ -43,7 +45,9 @@ getAsthma <- function(filePath,  geometryLayers){
   # select geometry layers of interest 
   geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
   # read in data 
-  d1 <- read.csv(filePath)
+  d1 <- read.csv(filePath) |>
+    dplyr::filter(pop>0)|>
+    dplyr::mutate(adj_rate = as.numeric(adj_rate))
   # established the export 
   exportPathMain <- "data/products/sensitivePopulation"
   # create export dir

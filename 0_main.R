@@ -174,6 +174,7 @@ getOver65(geometryLayers = geometries)
 getHousingBurden(geometryLayers = geometries)
 
 ## percent disability 
+### not measured at the census block group 
 getDisability(geometryLayers = geometries)
 
 ## less then high school 
@@ -211,8 +212,12 @@ getDemographics(geometryLayers = geometries)
 #  Group Component Score Calculations  ------------------------------------
 getHealthAndSocial(geometryLayers = geometries)
 
+
 getPollutionAndClimate(geometryLayers = geometries)
 
 # Enviroscreen Score Calculations  ----------------------------------------
+getEnviroScreen(geometryLayers = geometries)
+
+# process enviroscreen scores for export ----------------------------------
 
 

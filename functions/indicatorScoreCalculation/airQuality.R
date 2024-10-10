@@ -130,38 +130,26 @@ processAir <- function(data){
   ## county
   countyScores <- allScores |> 
     dplyr::group_by(cGEOID)|>
-    dplyr::summarise(noPopScore = sum(aggregatedNoPopScore),
-                     PercentPopScore = sum(aggregatedPercentPopScore),
-                     numberOfSource = n())|>
+    dplyr::summarise(PercentPopScore = sum(aggregatedPercentPopScore))|>
     dplyr::select(
       "GEOID" = cGEOID,
-      noPopScore,
-      PercentPopScore,
-      numberOfSource
+      "airToxins" = PercentPopScore,
     )
   ## censustract 
   censusTractScores <- allScores |> 
     dplyr::group_by(ctGEOID)|>
-    dplyr::summarise(noPopScore = sum(aggregatedNoPopScore),
-                     PercentPopScore = sum(aggregatedPercentPopScore),
-                     numberOfSource = n())|>
+    dplyr::summarise(PercentPopScore = sum(aggregatedPercentPopScore))|>
     dplyr::select(
       "GEOID" = ctGEOID,
-      noPopScore,
-      PercentPopScore,
-      numberOfSource
+      "airToxins" = PercentPopScore,
     )
   ## census block group 
   censusBlockGroupScores <- allScores |> 
     dplyr::group_by(bgGEOID)|>
-    dplyr::summarise(noPopScore = sum(aggregatedNoPopScore),
-                     PercentPopScore = sum(aggregatedPercentPopScore),
-                     numberOfSource = n())|>
+    dplyr::summarise(PercentPopScore = sum(aggregatedPercentPopScore))|>
     dplyr::select(
       "GEOID" = bgGEOID,
-      noPopScore,
-      PercentPopScore,
-      numberOfSource
+      "airToxins" = PercentPopScore,
     )
   return(
     list(

@@ -1,7 +1,7 @@
 # 
 # data <- allData
-# geometry <- geometryFiles[[1]]
-# name <- names(geometryFiles)[[1]]
+# geometry <- geometryFiles[[2]]
+# name <- names(geometryFiles)[[2]]
 
 processSensitivePopulation <- function(geometry, name, data){
   # select the data set of interest 
@@ -13,8 +13,10 @@ processSensitivePopulation <- function(geometry, name, data){
     dplyr::select("GEOID")
   # read in and join datasets 
   for(i in 1:length(vals)){
+    print(i)
     # read in data 
     d1 <- readr::read_csv(vals[i])
+    print(names(d1))
     # some dataset have a row number column... should change that in the export 
     if(ncol(d1) == 3){
       d1 <- d1[,2:3]
@@ -25,6 +27,18 @@ processSensitivePopulation <- function(geometry, name, data){
   }
   # generate the percentile score  
   output <- geom |>
+    dplyr::select(
+      "GEOID",
+      "Asthma" = "asthma",
+      "Cancer" = "combinedCancer",
+      "Diabetes" = "combinedDiabetes",
+      "Cadiovascular" = "combinedHeart",
+      "Life expectancy" = "lifeExpectancy",
+      "Low birth weight" = "lowBirthRate",
+      "Mental health" = "adj_rate_Prevalence",
+      "Population over 64" = "age_over65",
+      "Population under 5" = "age_under5"    
+    )|>
     dplyr::mutate(
       across(where(is.numeric),
              .fns = list(pcntl = ~cume_dist(.)*100),

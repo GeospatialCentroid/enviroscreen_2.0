@@ -14,7 +14,8 @@ processHeat <- function(geometry, name, data){
       dplyr::mutate(GEOID = paste0("0",CountyFIPS))|>
       dplyr::select(GEOID, Value) |>
       dplyr::group_by(GEOID)|>
-      dplyr::summarise(aveHeatDays = mean(Value))
+      dplyr::summarise(aveHeatDays = mean(Value))|>
+      dplyr::select(GEOID, "heatDays" = aveHeatDays)
   }else{
     censustrack <- data |> 
       dplyr::filter(!is.na(CensusTract))|>

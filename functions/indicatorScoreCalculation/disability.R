@@ -1,23 +1,49 @@
 # 
 # data <- allData
-# geometry <- geometryFiles[[1]]
-# name <- names(geometryFiles)[[1]]
+# geometry <- geometryFiles[[3]]
+# name <- names(geometryFiles)[[3]]
 
 processDisability <- function(geometry, name, data){
-  # select the data set of interest 
-  vals <- data[[grep(pattern = name, x = names(data))]] |> as.data.frame()
   
-  # structure then generate and select measures of concern
-  output <- structureACS(vals) |>
-    dplyr::group_by(GEOID)|>
-    dplyr::mutate(
-      percent_disability = sum(B18101_004, B18101_007,
-                               B18101_010, B18101_013,
-                               B18101_016, B18101_019,
-                               B18101_023, B18101_026,
-                               B18101_029, B18101_032,
-                               B18101_035, B18101_038) / B18101_001)|>
-    select("GEOID", "percent_disability")
+  if(name != "censusBlockGroup"){
+    # select the data set of interest 
+    vals <- data[[grep(pattern = name, x = names(data))]] |> as.data.frame()
+    
+    # structure then generate and select measures of concern
+    output <- structureACS(vals) |>
+      dplyr::group_by(GEOID)|>
+      dplyr::mutate(
+        percent_disability = sum(B18101_004, B18101_007,
+                                 B18101_010, B18101_013,
+                                 B18101_016, B18101_019,
+                                 B18101_023, B18101_026,
+                                 B18101_029, B18101_032,
+                                 B18101_035, B18101_038 ) / B18101_001)|>
+      select("GEOID", "percent_disability")
+  }else{
+    # read in census tract data 
+    vals <- data[[grep(pattern = "censusTract", x = names(data))]] |> as.data.frame()
+    # generate census track values 
+    ctVals <- structureACS(vals) |>
+      dplyr::group_by(GEOID)|>
+      dplyr::mutate(
+        percent_disability = sum(B18101_004, B18101_007,
+                                 B18101_010, B18101_013,
+                                 B18101_016, B18101_019,
+                                 B18101_023, B18101_026,
+                                 B18101_029, B18101_032,
+                                 B18101_035, B18101_038 ) / B18101_001)|>
+      select("GEOID", "percent_disability")
+    # join to census block group 
+    output <- geometry |>
+      sf::st_drop_geometry() |>
+      dplyr::mutate(geoid2 = stringr::str_sub(GEOID, start = 1, end = 11))|>
+      dplyr::left_join(y = ctVals, by = c("geoid2" = "GEOID"))|>
+      select("GEOID", "percent_disability")
+    
+  }
+  
+  
   #export 
   return(output)
 }

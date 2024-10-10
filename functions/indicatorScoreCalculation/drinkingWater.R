@@ -1,8 +1,8 @@
 # 
 # filePath <- "data/raw/drinkingWater/CONUS_L50dBA_sumDay_exi.tif"
 # data <- allData
-# geometry <- geometryFiles[[2]]
-# name <- names(geometryFiles)[[2]]
+# geometry <- geometryFiles[[3]]
+# name <- names(geometryFiles)[[3]]
 
 processDrinkingWater <- function(geometry, name, data){
   # rename id variable 
@@ -140,11 +140,12 @@ processDrinkingWater <- function(geometry, name, data){
   if(name != "county"){
     # process down geometry  
     output <- geometry |>
+      sf::st_drop_geometry()|>
       dplyr::mutate(
-        GEOID = stringr::str_sub(GEOID, start = 1, end = 5)
+        geoid2 = stringr::str_sub(GEOID, start = 1, end = 5)
       )|>
-      dplyr::left_join(y = violationsGEOID, by = "GEOID"
-      )
+      dplyr::left_join(y = violationsGEOID, by = c("geoid2" ="GEOID"))|>
+      dplyr::select(-geoid2) 
   }
   
   # output

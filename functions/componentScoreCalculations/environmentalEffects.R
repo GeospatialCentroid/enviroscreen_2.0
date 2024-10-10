@@ -26,6 +26,16 @@ processEnvironmentalEffects <- function(geometry, name, data){
   }
   # generate the percentile score  
   output <- geom |>
+    dplyr::select(
+      "GEOID",
+      "Proximity to hazardous waste facilities" = "proxHazWaste",
+      "Proximity to mining locations" = "PercentPopScore.x",
+      "Proximity to National Priorities List sites" = "proxNPLsites",
+      "Proximity to oil and gas" = "PercentPopScore.y",  
+      "Proximity to Risk Management Plan sites" = "proxRMPsites",       
+      "Impaired streams and rivers" = "surfaceWater",        
+      "Wastewater discharge" = "wasteWaterDischarge"
+    )|>
     dplyr::mutate(
       across(where(is.numeric),
              .fns = list(pcntl = ~cume_dist(.)*100),
