@@ -10,10 +10,10 @@
 pacman::p_load(terra, dplyr, stringr, sf,tigris,readr,readxl,R.utils,vroom)
 
 #find sfdep,tmap, lubridate
+# tmap_mode("view")
 
-tmap_mode("view")
 ## alt ; install you census api key if you want or provide as parameter in functions 
-tidycensus::census_api_key(key = "c0c9861c82c1359ad491851b6671422a28635c09")
+tidycensus::census_api_key(key = "your key here")
 
 # source helper function ---
 ## this allows you to source files from a specific folder.

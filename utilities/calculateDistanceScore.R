@@ -1,48 +1,60 @@
-#' Calculate the distance weighted populated score per census block 
+#' Calculate Distance Score for Emission Sites
 #'
-#' @param index : a numerical vector used to select rows from the sites dataframe 
-#' @param sites : a spatial data object with all point source emission locations
-#' @param blockGroupNeighbors : a dataframe with indexed for what block to evaluated 
-#' @param blocks : a spatial data object representation the block location 
+#' This function calculates a distance score for blocks of interest based on their proximity to an emission site.
 #'
-#' @return : a dataframe of block elements with a distance - populaiton weighted scores per the specific emission source  
-calculateDistanceScore <- function(index, sites, blockGroupNeighbors, blocks){
-  # select element of interest 
-  site <- sites[index, ]
-  if(index %% 25 == 0){
-    print(paste0(index, " out of ", nrow(sites)))
-  } 
-  # gather the expected census block groups 
-  neighborCBG <- blockGroupNeighbors |> 
-    dplyr::filter(GEOID == site$cbg_geoid) |>
-    dplyr::pull(neighbors)|>
-    unlist()
-  # filter the blocks based on expect neighbors 
-  blockSelection <- blocks |>
-    dplyr::filter(bgGEOID %in% neighborCBG) |>
-    sf::st_transform(crs(sites))|>
-    # drop any zero population locations 
-    dplyr::filter(acs2022PopAdj > 0)
-  # detemine the distance between emmision site and all blocks of interest 
-  distance <- st_distance(x = site,
-                          y = blockSelection) |>
-    as.data.frame() |>
-    t()
-  # add distance measure to the selected blocks 
-  ## want this in km rather than meters for the 1/distance measures
-  blockSelection$distance <- round(distance[,1]) / 1000 
-  # add the site score from the site 
-  blockSelection$siteScore <- site$siteScore
-  
-  blockSelectionDistanceFilter <- blockSelection |>
-    dplyr::filter(distance <= 5)|> # this might change 
-    # add a measure for the very small distances, keeps the distance score to a max of 10 
-    dplyr::mutate(adjDistance = case_when( 
-      distance < 0.1 ~ 0.1,
-      .default = distance),
-      distanceScore = 1/adjDistance,
-      nonPopScore = siteScore * distanceScore, # no population considered 
-      percentPopScore = siteScore * distanceScore * (percentOfCBGpopulation/100) # converting back to vals between 0-1
-    )|> st_drop_geometry()
-  return(blockSelectionDistanceFilter)
-}
+#' @param index The index of the current emission site within a loop.
+#' @param sites A dataframe containing information about emission sites.
+#' @param blockGroupNeighbors A dataframe relating census block groups to their expected neighbors.
+#' @param blocks A dataframe containing information about all census blocks
+#'
+#' @return A dataframe containing selected blocks with their calculated distances, site score, distance score, non-population score, and percent population score.
+#'
+#' @import dplyr
+#' @import sf
+
+calculateDistanceScore <-
+  function(index, sites, blockGroupNeighbors, blocks) {
+    # Select the current emission site
+    emissionSite <- sites[index,]
+    
+    # Print progress information (optional)
+    if (index %% 25 == 0) {
+      cat(paste0(index, " out of ", nrow(sites), "\n"))
+    }
+    
+    # Identify expected neighboring block group IDs
+    neighboringBlockGroupIDs <- blockGroupNeighbors |>
+      filter(GEOID == emissionSite$cbg_geoid) |>
+      pull(neighbors) |>
+      unlist()
+    
+    # Filter blocks based on expected neighbors
+    blockSelection <- blocks |>
+      filter(bgGEOID %in% neighboringBlockGroupIDs) |>
+      st_transform(crs(sites)) |>
+      filter(acs2022PopAdj > 0)  # Optional: Remove blocks with zero population
+    
+    # Calculate distance to each block
+    distance <- st_distance(x = emissionSite, y = blockSelection) |>
+      as.data.frame() |>
+      t()
+    
+    # Add distance and site score to block selection
+    blockSelection$distance <-
+      round(distance[, 1]) / 1000  # Convert distance to kilometers
+    blockSelection$siteScore <- emissionSite$siteScore
+    
+    # Filter and score blocks based on distance
+    blockSelectionDistanceFilter <- blockSelection |>
+      filter(distance <= 5) |>  # Adjustable distance threshold
+      mutate(
+        adjDistance = case_when(distance < 0.1 ~ 0.1,
+                                TRUE ~ distance),
+        distanceScore = 1 / adjDistance,
+        nonPopScore = siteScore * distanceScore,
+        percentPopScore = siteScore * distanceScore * (percentOfCBGpopulation / 100)
+      ) |>
+      st_drop_geometry()
+    
+    return(blockSelectionDistanceFilter)
+  }

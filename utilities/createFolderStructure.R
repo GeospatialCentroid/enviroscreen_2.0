@@ -1,43 +1,45 @@
+#' Create Folder Structures
+#'
+#' This function creates a folder structure for data storage and organization.
+#'
+#' @return Nothing.
+#'
+#' @import dplyr
 
-
-
-#' createFolderStructures
-#' @description
-#' A helper function that generates a the folder structure for the project 
-#' 
-#' 
-createFolderStructures <- function(){
-  # helper function 
-  testThenCreate <- function(path){
-    # test then create raw 
-    if(!dir.exists(path)){
+createFolderStructures <- function() {
+  # Helper function to test for and create a directory
+  testThenCreate <- function(path) {
+    if (!dir.exists(path)) {
       dir.create(path)
-    }else{
-      print(paste0("The ", path, " already exists."))
+      cat("Created directory:", path, "\n")
+    } else {
+      cat("Directory already exists:", path, "\n")
     }
   }
   
-  # set root 
+  # Set root directory
   root <- getwd()
-  # data 
-  dataPath <- paste0(root,"/data")
-  # data folder 
+  
+  # Data directory
+  dataPath <- paste0(root, "/data")
   testThenCreate(path = dataPath)
-  # subfolders within the data folder 
+  
+  # Subfolders within the data directory
   dataRaw <- paste0(dataPath, "/raw")
   dataProcessed <- paste0(dataPath, "/processed")
   dataProducts <- paste0(dataPath, "/products")
-  primaryFolder <- c(dataRaw, dataProcessed, dataProducts)
-  # generate folders 
-  lapply(X = primaryFolder, FUN = testThenCreate)
+  primaryFolders <- c(dataRaw, dataProcessed, dataProducts)
   
-  # generate category within the products folder 
+  # Generate primary folders
+  lapply(X = primaryFolders, FUN = testThenCreate)
+  
+  # Generate category folders within the products directory
   components <- c("environmentalExposures", "environmentalEffects", "climateVulnerability",
                   "sensitivePopulation", "demographics")
-  # produce the sub layers 
-  productComponents <- paste0(dataProducts,"/", components)
-  # generate folders 
-  lapply(X = productComponents, FUN = testThenCreate)
-  print("all folders generated") 
+  productComponents <- paste0(dataProducts, "/", components)
   
+  # Generate product component folders
+  lapply(X = productComponents, FUN = testThenCreate)
+  
+  cat("All folders generated.\n")
 }
