@@ -7,14 +7,13 @@
 
 
 # source libraries ---
-pacman::p_load(terra, dplyr, stringr, sf, tidycensus,
-               sfdep, tigris, tmap, readr, readxl,R.utils, vroom,
-               lubridate)
+pacman::p_load(terra, dplyr, stringr, sf,tigris,readr,readxl,R.utils,vroom)
+
+#find sfdep,tmap, lubridate
+
 tmap_mode("view")
 ## alt ; install you census api key if you want or provide as parameter in functions 
-# tidycensus::census_api_key(key = "your key",
-#                            install = TRUE,
-#                            overwrite = TRUE)
+tidycensus::census_api_key(key = "c0c9861c82c1359ad491851b6671422a28635c09")
 
 # source helper function ---
 ## this allows you to source files from a specific folder.
@@ -45,22 +44,12 @@ if(!file.exists("data/processed/geographies/blocksWithAdjustedPop.gpkg")){
 if(!file.exists("data/processed/geographies/bgNeighbors.RDS")){
   source("scripts/blockGroupBuffering.R")
 }
-
-vals <- readRDS("data/processed/geographies/bgNeighbors.RDS")
-# set up environment ----
-
-
-
+# read in the 
+blockGroupNeighbors <- readRDS("data/processed/geographies/bgNeighbors.RDS")
 
 
 # Indicator Score Calculation ----
-## the processing functions themselves need to work exclusive of the targets frame
-## work. Targets is being used here to ensure efficency in the running of the processing code
-## work on what the best integration between the development stratigies is 
 
-
-### both the ejscreen dataset and acs data have indicators in multiple component score measures 
-### as a result these will be processed in a single script and write to their specific locations 
 ## EJScreen Data 
 getEJscreen(geometryLayers = geometries, overwrite = FALSE)
 
@@ -77,6 +66,9 @@ getDiesel(geometryLayers = geometries)
 
 ## drinking water 
 getDrinkingWater(geometryLayers = geometries)
+## errors : Caused by error in `vctrs::vec_size_common()`:
+# ! object 'GEOID' not found 
+
 
 ## lead 
 ### ACS data --- what is used to call this measures? 
@@ -112,7 +104,7 @@ getHazardousWaste(geometryLayers = geometries)
 getMining(geometryLayers = geometries)
 
 ## NPL sites 
-getNPSsites(geometryLayers = geometries)
+getNPLsites(geometryLayers = geometries)
 
 ## oil and gas 
 getOilAndGas(geometryLayers = geometries)

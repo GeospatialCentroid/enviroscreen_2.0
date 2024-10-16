@@ -1,0 +1,4698 @@
+Utilities Section
+#' Calculate the distance weighted populated score per census block 
+#'
+#' @param index : a numerical vector used to select rows from the sites dataframe 
+#' @param sites : a spatial data object with all point source emission locations
+#' @param blockGroupNeighbors : a dataframe with indexed for what block to evaluated 
+#' @param blocks : a spatial data object representation the block location 
+#'
+#' @return : a dataframe of block elements with a distance - populaiton weighted scores per the specific emission source  
+calculateDistanceScore <- function(index, sites, blockGroupNeighbors, blocks){
+  # select element of interest 
+  site <- sites[index, ]
+  if(index %% 25 == 0){
+    print(paste0(index, " out of ", nrow(sites)))
+  } 
+  # gather the expected census block groups 
+  neighborCBG <- blockGroupNeighbors |> 
+    dplyr::filter(GEOID == site$cbg_geoid) |>
+    dplyr::pull(neighbors)|>
+    unlist()
+  # filter the blocks based on expect neighbors 
+  blockSelection <- blocks |>
+    dplyr::filter(bgGEOID %in% neighborCBG) |>
+    sf::st_transform(crs(sites))|>
+    # drop any zero population locations 
+    dplyr::filter(acs2022PopAdj > 0)
+  # detemine the distance between emmision site and all blocks of interest 
+  distance <- st_distance(x = site,
+                          y = blockSelection) |>
+    as.data.frame() |>
+    t()
+  # add distance measure to the selected blocks 
+  ## want this in km rather than meters for the 1/distance measures
+  blockSelection$distance <- round(distance[,1]) / 1000 
+  # add the site score from the site 
+  blockSelection$siteScore <- site$siteScore
+  
+  blockSelectionDistanceFilter <- blockSelection |>
+    dplyr::filter(distance <= 5)|> # this might change 
+    # add a measure for the very small distances, keeps the distance score to a max of 10 
+    dplyr::mutate(adjDistance = case_when( 
+      distance < 0.1 ~ 0.1,
+      .default = distance),
+      distanceScore = 1/adjDistance,
+      nonPopScore = siteScore * distanceScore, # no population considered 
+      percentPopScore = siteScore * distanceScore * (percentOfCBGpopulation/100) # converting back to vals between 0-1
+    )|> st_drop_geometry()
+  return(blockSelectionDistanceFilter)
+}
+
+
+
+#' createFolderStructures
+#' @description
+#' A helper function that generates a the folder structure for the project 
+#' 
+#' 
+createFolderStructures <- function(){
+  # helper function 
+  testThenCreate <- function(path){
+    # test then create raw 
+    if(!dir.exists(path)){
+      dir.create(path)
+    }else{
+      print(paste0("The ", path, " already exists."))
+    }
+  }
+  
+  # set root 
+  root <- getwd()
+  # data 
+  dataPath <- paste0(root,"/data")
+  # data folder 
+  testThenCreate(path = dataPath)
+  # subfolders within the data folder 
+  dataRaw <- paste0(dataPath, "/raw")
+  dataProcessed <- paste0(dataPath, "/processed")
+  dataProducts <- paste0(dataPath, "/products")
+  primaryFolder <- c(dataRaw, dataProcessed, dataProducts)
+  # generate folders 
+  lapply(X = primaryFolder, FUN = testThenCreate)
+  
+  # generate category within the products folder 
+  components <- c("environmentalExposures", "environmentalEffects", "climateVulnerability",
+                  "sensitivePopulation", "demographics")
+  # produce the sub layers 
+  productComponents <- paste0(dataProducts,"/", components)
+  # generate folders 
+  lapply(X = productComponents, FUN = testThenCreate)
+  print("all folders generated") 
+  
+}
+
+#geometric mean
+# take from https://stackoverflow.com/questions/2602583/geometric-mean-is-there-a-built-in
+
+gm_mean = function(x){
+  # Drop the NA values from the list of features.
+  # the reduced the length of the denominator
+  x <- x[!is.na(x)]
+  
+  ### moving away from this due to potential diff between lenght in input in numerator/denomator when zeros are present
+  # exp(sum(log(x[x > 0]), na.rm=na.rm) / length(x))
+  
+  exp(mean(log(x[x>0])))
+  
+}
+#' loadFunctions 
+#' @description : help function to load all functions. Useful when making edits as you can run in console 
+
+loadFunctions <- function(path){
+  # builds a path to the folder where .R scripts are contained 
+  filePaths <- list.files(paste0(path,"/"),
+                          pattern = ".R",
+                          full.names = TRUE,
+                          recursive = TRUE)
+  # this grabs all files, so might hit some issues as we can only source .R files 
+  # Loop here to print the function name, can be helpful to have
+  for (i in seq_along(filePaths)) {
+    print(filePaths[i])
+    source(file = filePaths[i], echo = FALSE)
+  }
+}
+normalizeVector <- function(x){
+  # normalizes a vector of numerical data
+  max <- max(x, na.rm = TRUE)
+  return(x / max)
+}
+
+
+#' Process geometry layers 
+#' 
+#' @description : grabs raw data from the `pullCensusGeographies` function and produces processed spatial data layers for all geographies of interest.
+#' Each spatial data layer is writen to disk in the `processed/geographies` folder and is also returned as a named list by the function
+#' @return : A name list containing the five spatial data layers used in this project. 
+#' 
+processGeometryLayers <-function(){
+  # hard coded path to data location  
+  paths <- list.files("data/raw",pattern = ".gpkg", full.names = TRUE)
+  
+  if(length(paths)== 0){
+    print("No raw input data was found at the data/raw folder path. Ensure that the function `pullCensusGeographies` has been successfully ran.")
+  }else{
+  # create directory as needed
+  exportDir <- "data/processed/geographies"
+  if(!dir.exists(exportDir)){
+    dir.create(exportDir)
+  }
+  
+  # grab the processing level name 
+  geomName <- gsub(pattern =  ".gpkg",
+                   replacement = "",
+                   basename(paths))
+  # define export paths 
+  statePath <- paste0(exportDir,"/state.gpkg")
+  countyPath <- paste0(exportDir,"/county.gpkg")
+  censusTractPath <- paste0(exportDir,"/censusTract.gpkg")
+  censusTractPath2010 <- paste0(exportDir,"/censusTract2010.gpkg")
+  censusBlockGroupPath <- paste0(exportDir,"/censusBlockGroup.gpkg")
+  censusBlockPath <- paste0(exportDir,"/censusBlock.gpkg")
+  
+  # state 
+  print("processing state")
+  if(!file.exists(statePath)){
+    state <- sf::st_read(paths[grepl(pattern = "state", x = paths)]) |>
+      dplyr::select(GEOID, NAME)
+    sf::st_write(obj = state, dsn = statePath)
+  }else{
+    state <- sf::st_read(statePath)
+  }
+  # county 
+  print("processing county")
+  if(!file.exists(countyPath)){
+    county <- sf::st_read(paths[grepl(pattern = "county", x = paths)])|>
+      dplyr::select(GEOID, NAME)
+    sf::st_write(obj = county, dsn = countyPath)
+  }else{
+    county <- sf::st_read(countyPath)
+  }
+  
+  # censusTract
+  print("processing census tract 2020")
+  if(!file.exists(censusTractPath)){
+    censusTract <- sf::st_read(paths[grepl(pattern = "censusTract.gpkg", x = paths)])|>
+      dplyr::select(GEOID)
+    sf::st_write(obj = censusTract, dsn = censusTractPath)
+  }else{
+    censusTract <- sf::st_read(censusTractPath)
+  }
+  
+  # censusTract 2010
+  print("processing census tract 2010")
+  if(!file.exists(censusTractPath2010)){
+    censusTract2010 <- sf::st_read(paths[grepl(pattern = "censusTract2010.gpkg", x = paths)])|>
+      dplyr::select(GEOID10)
+    sf::st_write(obj = censusTract, dsn = censusTractPath2010)
+  }else{
+    censusTract2010 <- sf::st_read(censusTractPath2010)
+  }
+  
+  # census Block Groups 
+  print("processing census block group")
+  if(!file.exists(censusBlockGroupPath)){
+    censusBlockGroups <- sf::st_read(paths[grepl(pattern ="censusBlockGroups", x = paths)])|>
+      dplyr::select(GEOID)
+    sf::st_write(obj = censusBlockGroups, dsn = censusBlockGroupPath)
+  }else{
+    censusBlockGroups <- sf::st_read(censusBlockGroupPath)
+  }
+  
+  # census Blocks 
+  print("processing census block")
+  if(!file.exists(censusBlockPath)){
+  censusBlocks <- sf::st_read(paths[grepl(pattern = "censusBlocks", x = paths)])|>
+    dplyr::select(GEOID = GEOID20)
+  sf::st_write(obj = censusBlocks, dsn =censusBlockPath)
+  }else{
+    censusBlocks <- sf::st_read(censusBlockPath)
+  }
+  
+  # create a named list for storing objects 
+  geomList <- list(
+    state = state,
+    county = county,
+    censusTract = censusTract, 
+    censusBlockGroup = censusBlockGroups,
+    censusBlocks = censusBlocks      
+  )
+  return(geomList)
+  
+  }
+}
+
+# helper function to transforming the long to wide data structure of ACS data
+structureACS <- function(data){
+  data |>
+    tidyr::spread(key = variable, value = estimate) |>
+    dplyr::group_by(GEOID) |>
+    dplyr::summarize(across(contains("_"), ~ sum(.x, na.rm = TRUE))) 
+    # adding this second group by to the specific indicator functions 
+    # |>
+    #   dplyr::group_by(GEOID)
+}
+Functions Section
+# 
+# data <- allData
+# geometry <- geometryFiles[[2]]
+# name <- names(geometryFiles)[[2]]
+
+processClimateVulnerability <- function(geometry, name, data){
+  # select the data set of interest 
+  vals <- data[[grep(pattern = name, x = names(data))]]
+  
+  # pull the GEOID from the geometry object 
+  geom <- geometry |>
+    sf::st_drop_geometry()|>
+    dplyr::select("GEOID")
+  # read in and join datasets 
+  for(i in 1:length(vals)){
+    # read in data 
+    d1 <- readr::read_csv(vals[i])
+    # some dataset have a row number column... should change that in the export 
+    if(ncol(d1) == 3){
+      d1 <- d1[,2:3]
+    }
+    
+    geom <- geom |>
+      dplyr::left_join(y = d1, by = "GEOID")
+  }
+  # select the specific indicators of interest 
+  # generate the percentile score  
+  output <- geom |>
+    dplyr::select(
+      "GEOID" ,
+      "Drought" = "percentTimeInDrought",
+      "Floodplains" = "floodplainPercent",
+      "Extreme heat days" = "heatDays",
+      "Wildfire risk" = "wildfire" 
+    )|>
+    dplyr::mutate(
+      across(where(is.numeric),
+             .fns = list(pcntl = ~cume_dist(.)*100),
+             .names = "{col}_{fn}")
+    )
+  # not super happy with the column naming at the moment
+  output$climateVulnerability <- output |>
+    dplyr::select(contains("_pcntl"))|>
+    apply(MARGIN = 1, FUN = gm_mean)
+  
+  #export 
+  return(output)
+}
+
+
+#' Generate housingBurden measure
+#'
+#' @param geometryLayers : list of spatial object representing the processing levels
+#' 
+getClimate <- function(geometryLayers){
+  # select geometry layers of interest 
+  geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
+  # read in data 
+  data <- list.files("data/products/climateVulnerability",
+                     pattern = ".csv",
+                     full.names = TRUE,
+                     recursive = TRUE)
+  # organize for the function
+  allData <- list(
+    county = data[grepl(pattern = "county", x = data)],
+    censusTract = data[grepl(pattern = "censusTract", x = data)],
+    censusBlockGroup = data[grepl(pattern = "censusBlockGroup", x = data)]
+  )
+  
+  
+  # established the export 
+  exportPathMain <- "data/products/componentScores"
+  # create export dir
+  exportDir <- exportPathMain
+  if(!dir.exists(exportDir)){
+    dir.create(exportDir)
+  }
+  # process the datasets 
+  results <- purrr::map2(.x = geometryFiles,
+                         .y = names(geometryFiles),
+                         .f = processClimateVulnerability,
+                         data = allData)
+  
+  for(i in seq_along(results)){
+    data <- results[[i]]
+    name <- names(results)[i]
+    write.csv(x = data, file = paste0(exportDir,"/climateVulnerability_", name , ".csv"))
+  }
+}
+# 
+# data <- allData
+# geometry <- geometryFiles[[1]]
+# name <- names(geometryFiles)[[1]]
+
+processDemoGraphics <- function(geometry, name, data){
+  # select the data set of interest 
+  vals <- data[[grep(pattern = name, x = names(data))]]
+  
+  # pull the GEOID from the geometry object 
+  geom <- geometry |>
+    sf::st_drop_geometry()|>
+    dplyr::select("GEOID")
+  # read in and join datasets 
+  for(i in 1:length(vals)){
+    # read in data 
+    d1 <- readr::read_csv(vals[i])
+    # some dataset have a row number column... should change that in the export 
+    if(ncol(d1) == 3){
+      d1 <- d1[,2:3]
+    }
+    
+    geom <- geom |>
+      dplyr::left_join(y = d1, by = "GEOID")
+  }
+  
+  
+  # generate the percentile score  
+  output <- geom |>
+    dplyr::select(
+      "GEOID",
+      "Housing cost burden" = "HH_Burdened_Pct",
+      "Percent disability" = "percent_disability",
+      "Percent less than high school education" = "percent_lths",
+      "Percent linguistic isolation" = "percent_lingiso",
+      "Percent low income" =  "percent_lowincome",
+      "Percent people of color" = "percent_minority"
+    )|>
+    dplyr::mutate(
+      across(where(is.numeric),
+             .fns = list(pcntl = ~cume_dist(.)*100),
+             .names = "{col}_{fn}")
+    )
+  # appply percentile calculations 
+  output$demograpics <- output |>
+    dplyr::select(contains("_pcntl"))|>
+    apply(MARGIN = 1, FUN = gm_mean)
+  
+  
+  #export 
+  return(output)
+}
+
+
+#' Generate housingBurden measure
+#'
+#' @param geometryLayers : list of spatial object representing the processing levels
+#' 
+getDemographics <- function(geometryLayers){
+  # select geometry layers of interest 
+  geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
+  # read in data 
+  data <- list.files("data/products/demographics",
+                     pattern = ".csv",
+                     full.names = TRUE,
+                     recursive = TRUE)
+  # organize for the function
+  allData <- list(
+    county = data[grepl(pattern = "county", x = data)],
+    censusTract = data[grepl(pattern = "censusTract", x = data)],
+    censusBlockGroup = data[grepl(pattern = "censusBlockGroup", x = data)]
+  )
+  
+  
+  # established the export 
+  exportPathMain <- "data/products/componentScores"
+  # create export dir
+  exportDir <- exportPathMain
+  if(!dir.exists(exportDir)){
+    dir.create(exportDir)
+  }
+  # process the datasets 
+  results <- purrr::map2(.x = geometryFiles,
+                         .y = names(geometryFiles),
+                         .f = processDemoGraphics,
+                         data = allData)
+  
+  for(i in seq_along(results)){
+    data <- results[[i]]
+    name <- names(results)[i]
+    write.csv(x = data, file = paste0(exportDir,"/demographics_", name , ".csv"))
+  }
+}
+# 
+# data <- allData
+# geometry <- geometryFiles[[1]]
+# name <- names(geometryFiles)[[1]]
+
+processEnvironmentalEffects <- function(geometry, name, data){
+  # select the data set of interest 
+  vals <- data[[grep(pattern = name, x = names(data))]]
+  
+  # pull the GEOID from the geometry object 
+  geom <- geometry |>
+    sf::st_drop_geometry()|>
+    dplyr::select("GEOID")
+  # read in and join datasets 
+  for(i in 1:length(vals)){
+    print(i)
+    # read in data 
+    d1 <- readr::read_csv(vals[i])
+    # some dataset have a row number column... should change that in the export 
+    if(ncol(d1) == 3){
+      d1 <- d1[,2:3]
+    }
+    
+    geom <- geom |>
+      dplyr::left_join(y = d1, by = "GEOID")
+  }
+  # generate the percentile score  
+  output <- geom |>
+    dplyr::select(
+      "GEOID",
+      "Proximity to hazardous waste facilities" = "proxHazWaste",
+      "Proximity to mining locations" = "PercentPopScore.x",
+      "Proximity to National Priorities List sites" = "proxNPLsites",
+      "Proximity to oil and gas" = "PercentPopScore.y",  
+      "Proximity to Risk Management Plan sites" = "proxRMPsites",       
+      "Impaired streams and rivers" = "surfaceWater",        
+      "Wastewater discharge" = "wasteWaterDischarge"
+    )|>
+    dplyr::mutate(
+      across(where(is.numeric),
+             .fns = list(pcntl = ~cume_dist(.)*100),
+             .names = "{col}_{fn}")
+    )
+  # not super happy with the column order at the moment
+  output$environmentalEffects <- output |>
+    dplyr::select(contains("_pcntl"))|>
+    apply(MARGIN = 1, FUN = gm_mean)
+  
+  #export 
+  return(output)
+}
+
+
+#' Generate housingBurden measure
+#'
+#' @param geometryLayers : list of spatial object representing the processing levels
+#' 
+getEnvironmentalEffects <- function(geometryLayers){
+  # select geometry layers of interest 
+  geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
+  # read in data 
+  data <- list.files("data/products/environmentalEffects",
+                     pattern = ".csv",
+                     full.names = TRUE,
+                     recursive = TRUE)
+  # organize for the function
+  allData <- list(
+    county = data[grepl(pattern = "county", x = data)],
+    censusTract = data[grepl(pattern = "censusTract", x = data)],
+    censusBlockGroup = data[grepl(pattern = "censusBlockGroup", x = data)]
+  )
+  
+  
+  # established the export 
+  exportPathMain <- "data/products/componentScores"
+  # create export dir
+  exportDir <- exportPathMain
+  if(!dir.exists(exportDir)){
+    dir.create(exportDir)
+  }
+  # process the datasets 
+  results <- purrr::map2(.x = geometryFiles,
+                         .y = names(geometryFiles),
+                         .f = processEnvironmentalEffects,
+                         data = allData)
+  
+  for(i in seq_along(results)){
+    data <- results[[i]]
+    name <- names(results)[i]
+    write.csv(x = data, file = paste0(exportDir,"/environmentalEffects_", name , ".csv"))
+  }
+}
+# 
+# data <- allData
+# geometry <- geometryFiles[[3]]
+# name <- names(geometryFiles)[[3]]
+
+#' Title
+#'
+#' @param geometry 
+#' @param name 
+#' @param data 
+#'
+#' @return
+#' @export
+#'
+#' @examples
+processEnvironmentalExposures <- function(geometry, name, data){
+  # select the data set of interest 
+  vals <- data[[grep(pattern = name, x = names(data))]]
+  
+  # pull the GEOID from the geometry object 
+  geom <- geometry |>
+    sf::st_drop_geometry()|>
+    dplyr::select("GEOID")
+  # read in and join datasets 
+  for(i in 1:length(vals)){
+    # read in data 
+    d1 <- readr::read_csv(vals[i])
+    # some dataset have a row number column... should change that in the export 
+    if(ncol(d1) == 3){
+      d1 <- d1[,2:3]
+    }
+    
+    geom <- geom |>
+      dplyr::left_join(y = d1, by = "GEOID")
+  }
+  # generate the percentile score  
+  output <- geom |>
+    dplyr::select(
+      "GEOID",
+      "Air toxics emissions" = "airToxins",
+      "Diesel particulate matter" = "dieselPM",
+      "Drinking water regulations" = "Percentile",
+      "Lead exposure risk" = "lead",
+      "Noise" = "noise",
+      "Other air pollutants"  = "PercentPopScore",        
+      "Ozone" = "ozone_mean",
+      "Fine particle pollution" = "pm25_mean",
+      "Traffic proximity and volume"= "traffic"      
+    ) |>
+    dplyr::mutate(
+      across(where(is.numeric),
+             .fns = list(pcntl = ~cume_dist(.)*100),
+             .names = "{col}_{fn}")
+    )
+  # not super happy with the column naming at the moment
+  output$environmentalExposures <- output |>
+    dplyr::select(contains("_pcntl"))|>
+    apply(MARGIN = 1, FUN = gm_mean)
+  
+  #export 
+  return(output)
+}
+
+
+#' Generate housingBurden measure
+#'
+#' @param geometryLayers : list of spatial object representing the processing levels
+#' 
+getEnvironmentalExposures <- function(geometryLayers){
+  # select geometry layers of interest 
+  geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
+  # read in data 
+  data <- list.files("data/products/environmentalExposures",
+                     pattern = ".csv",
+                     full.names = TRUE,
+                     recursive = TRUE)
+  # organize for the function
+  allData <- list(
+    county = data[grepl(pattern = "county", x = data)],
+    censusTract = data[grepl(pattern = "censusTract", x = data)],
+    censusBlockGroup = data[grepl(pattern = "censusBlockGroup", x = data)]
+  )
+  
+  
+  # established the export 
+  exportPathMain <- "data/products/componentScores"
+  # create export dir
+  exportDir <- exportPathMain
+  if(!dir.exists(exportDir)){
+    dir.create(exportDir)
+  }
+  # process the datasets 
+  results <- purrr::map2(.x = geometryFiles,
+                         .y = names(geometryFiles),
+                         .f = processEnvironmentalExposures,
+                         data = allData)
+  
+  for(i in seq_along(results)){
+    data <- results[[i]]
+    name <- names(results)[i]
+    write.csv(x = data, file = paste0(exportDir,"/environmentalExposures_", name , ".csv"))
+  }
+}
+#
+# data <- allData
+# geometry <- geometryFiles[[2]]
+# name <- names(geometryFiles)[[2]]
+
+processEnviroScreen <- function(geometry, name, data){
+  # select the data set of interest
+  vals <- data[[grep(pattern = name, x = names(data))]]
+  # sen pop
+  v1 <- read_csv(vals[grepl(pattern = "HealthAndSocial", x = vals )])|>
+    dplyr::select(
+      "GEOID",
+      "Housing cost burden", "Housing cost burden_pcntl",
+      "Percent disability","Percent disability_pcntl",
+      "Percent less than high school education","Percent less than high school education_pcntl",
+      "Percent linguistic isolation","Percent linguistic isolation_pcntl",                  
+      "Percent low income","Percent low income_pcntl",  
+      "Percent people of color","Percent people of color_pcntl", 
+      "demograpics",                                                                         
+      "Asthma","Asthma_pcntl",
+      "Cancer","Cancer_pcntl",
+      "Diabetes","Diabetes_pcntl",
+      "Cadiovascular","Cadiovascular_pcntl", 
+      "Life expectancy","Life expectancy_pcntl",
+      "Low birth weight","Low birth weight_pcntl",                       
+      "Mental health","Mental health_pcntl",
+      "Population over 64","Population over 64_pcntl",
+      "Population under 5","Population under 5_pcntl",
+      "sensitivePopulation",
+      "popCharacteristic"
+    ) |>
+    dplyr::mutate(
+      scaledpopCharacteristic = popCharacteristic/max(popCharacteristic)*10
+    )
+  # enviromental effects
+  v2 <- read_csv(vals[grepl(pattern = "PollutionAndClimate", x = vals )])|>
+    dplyr::select(
+      "GEOID",                                             
+      "Air toxics emissions","Air toxics emissions_pcntl",                             
+      "Diesel particulate matter","Diesel particulate matter_pcntl",                          
+      "Drinking water regulations","Drinking water regulations_pcntl",                       
+      "Lead exposure risk", "Lead exposure risk_pcntl",                               
+      "Noise", "Noise_pcntl",                                           
+      "Other air pollutants", "Other air pollutants_pcntl",                              
+      "Ozone", "Ozone_pcntl",                                            
+      "Fine particle pollution", "Fine particle pollution_pcntl",                           
+      "Traffic proximity and volume", "Traffic proximity and volume_pcntl",                    
+      "environmentalExposures",                           
+      "Proximity to hazardous waste facilities", "Proximity to hazardous waste facilities_pcntl",          
+      "Proximity to mining locations", "Proximity to mining locations_pcntl",             
+      "Proximity to National Priorities List sites", "Proximity to National Priorities List sites_pcntl",     
+      "Proximity to oil and gas", "Proximity to oil and gas_pcntl",                        
+      "Proximity to Risk Management Plan sites", "Proximity to Risk Management Plan sites_pcntl",         
+      "Impaired streams and rivers", "Impaired streams and rivers_pcntl",                      
+      "Wastewater discharge", "Wastewater discharge_pcntl",                              
+      "environmentalEffects",                             
+      "Drought", "Drought_pcntl",                                          
+      "Floodplains", "Floodplains_pcntl",                                      
+      "Extreme heat days", "Extreme heat days_pcntl",                               
+      "Wildfire risk", "Wildfire risk_pcntl",                                     
+      "climateVulnerability",                            
+      "pollutionClimateBurden" 
+      ) |>
+    dplyr::mutate(
+      scaledpollClimate = pollutionClimateBurden/max(pollutionClimateBurden)*10
+    )
+  #bind datasets 
+  output <- dplyr::left_join(v1, v2, by = "GEOID")|>
+    dplyr::mutate(
+      finalScore = scaledpollClimate * scaledpopCharacteristic,
+      envExp_Pctl = cume_dist(environmentalExposures)*100,
+      envEff_Pctl = cume_dist(environmentalEffects)*100,
+      climate_Pctl = cume_dist(climateVulnerability)*100,
+      senPop_Pctl = cume_dist(sensitivePopulation)*100,
+      socEco_Pctl = cume_dist(demograpics)*100,
+      pollClimBurden_Pctl = cume_dist(pollutionClimateBurden)*100,
+      popCharacteristic_Pctl = cume_dist(popCharacteristic)*100,
+      finalScore_Pctl = cume_dist(finalScore)*100,
+    )
+
+  
+  #export
+  return(output)
+}
+
+
+#' Generate housingBurden measure
+#'
+#' @param geometryLayers : list of spatial object representing the processing levels
+#'
+getEnviroScreen <- function(geometryLayers){
+  # select geometry layers of interest
+  geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
+  # read in data
+  data <- list.files("data/products/groupComponentScores",
+                      pattern = ".csv",
+                      full.names = TRUE,
+                      recursive = TRUE)
+
+  # organize for the function
+  allData <- list(
+    county = data[grepl(pattern = "county", x = data)],
+    censusTract = data[grepl(pattern = "censusTract", x = data)],
+    censusBlockGroup = data[grepl(pattern = "censusBlockGroup", x = data)]
+  )
+
+
+  # established the export
+  exportPathMain <- "data/products/enviroscreenScore"
+  # create export dir
+  exportDir <- exportPathMain
+  if(!dir.exists(exportDir)){
+    dir.create(exportDir)
+  }
+  # process the datasets
+  results <- purrr::map2(.x = geometryFiles,
+                         .y = names(geometryFiles),
+                         .f = processEnviroScreen,
+                         data = allData)
+
+  for(i in seq_along(results)){
+    data <- results[[i]]
+    name <- names(results)[i]
+    write.csv(x = data, file = paste0(exportDir,"/EnviroScreen_", name , ".csv"))
+  }
+}
+#
+# data <- allData
+# geometry <- geometryFiles[[1]]
+# name <- names(geometryFiles)[[1]]
+
+processHealthAndSocial <- function(geometry, name, data){
+  # select the data set of interest
+  vals <- data[[grep(pattern = name, x = names(data))]]
+  #demographics
+  v1 <- read_csv(vals[grepl(pattern = "demographics", x = vals )])
+  # sensitive population
+  v2 <- read_csv(vals[grepl(pattern = "sensitivePopulation", x = vals )])
+  # bind 
+  output <- dplyr::left_join(v1, v2, by= "GEOID")|>
+    rowwise()|>
+    dplyr::mutate(
+      popCharacteristic = sum(sensitivePopulation, demograpics, na.rm = TRUE)/2
+    )
+  
+  #export
+  return(output)
+}
+
+
+#' Generate housingBurden measure
+#'
+#' @param geometryLayers : list of spatial object representing the processing levels
+#'
+getHealthAndSocial <- function(geometryLayers){
+  # select geometry layers of interest
+  geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
+  # read in data
+  data1 <- list.files("data/products/componentScores",
+                     pattern = ".csv",
+                     full.names = TRUE,
+                     recursive = TRUE)
+  # subset for sensitive pop and demogrpahics
+  data2 <- data1[grepl(pattern = "demographics",x = data1)]
+  data3 <- data1[grepl(pattern = "sensitive",x = data1)]
+
+  data <- c(data2,data3)
+  # organize for the function
+  allData <- list(
+    county = data[grepl(pattern = "county", x = data)],
+    censusTract = data[grepl(pattern = "censusTract", x = data)],
+    censusBlockGroup = data[grepl(pattern = "censusBlockGroup", x = data)]
+  )
+
+
+  # established the export
+  exportPathMain <- "data/products/groupComponentScores"
+  # create export dir
+  exportDir <- exportPathMain
+  if(!dir.exists(exportDir)){
+    dir.create(exportDir)
+  }
+  # process the datasets
+  results <- purrr::map2(.x = geometryFiles,
+                         .y = names(geometryFiles),
+                         .f = processHealthAndSocial,
+                         data = allData)
+
+  for(i in seq_along(results)){
+    data <- results[[i]]
+    name <- names(results)[i]
+    write.csv(x = data, file = paste0(exportDir,"/HealthAndSocial_", name , ".csv"))
+  }
+}
+#
+# data <- allData
+# geometry <- geometryFiles[[3]]
+# name <- names(geometryFiles)[[3]]
+
+processPollutionAndClimate <- function(geometry, name, data){
+  # select the data set of interest
+  vals <- data[[grep(pattern = name, x = names(data))]]
+  # environmentalExposures
+  v1 <- read_csv(vals[grepl(pattern = "environmentalExposures", x = vals )])
+  # environmentalEffects
+  v2 <- read_csv(vals[grepl(pattern = "environmentalEffects", x = vals )])
+  # climateVulnerability
+  v3 <- read_csv(vals[grepl(pattern = "climateVulnerability", x = vals )])
+  
+  # bind 
+  output <- dplyr::left_join(v1, v2, by= "GEOID")|>
+    dplyr::left_join(y = v3, by = "GEOID")|>
+    rowwise()|>
+    dplyr::mutate(
+      pollutionClimateBurden =  sum(environmentalExposures,
+                                    (environmentalEffects * 0.5) ,
+                                    (climateVulnerability *0.5),na.rm=TRUE)/2,
+    )
+  
+  # not super happy with the column naming at the moment
+
+  #export
+  return(output)
+}
+
+
+#' Generate housingBurden measure
+#'
+#' @param geometryLayers : list of spatial object representing the processing levels
+#'
+getPollutionAndClimate <- function(geometryLayers){
+  # select geometry layers of interest
+  geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
+  # read in data
+  data1 <- list.files("data/products/componentScores",
+                     pattern = ".csv",
+                     full.names = TRUE,
+                     recursive = TRUE)
+  # subset for sensitive pop and demogrpahics
+  data2 <- data1[grepl(pattern = "environmentalExposures",x = data1)]
+  data3 <- data1[grepl(pattern = "environmentalEffects",x = data1)]
+  data4 <- data1[grepl(pattern = "climateVulnerability",x = data1)]
+  data <- c(data2,data3, data4)
+  # organize for the function
+  allData <- list(
+    county = data[grepl(pattern = "county", x = data)],
+    censusTract = data[grepl(pattern = "censusTract", x = data)],
+    censusBlockGroup = data[grepl(pattern = "censusBlockGroup", x = data)]
+  )
+
+
+  # established the export
+  exportPathMain <- "data/products/groupComponentScores"
+  # create export dir
+  exportDir <- exportPathMain
+  if(!dir.exists(exportDir)){
+    dir.create(exportDir)
+  }
+  # process the datasets
+  results <- purrr::map2(.x = geometryFiles,
+                         .y = names(geometryFiles),
+                         .f = processPollutionAndClimate,
+                         data = allData)
+
+  for(i in seq_along(results)){
+    data <- results[[i]]
+    name <- names(results)[i]
+    write.csv(x = data, file = paste0(exportDir,"/PollutionAndClimate_", name , ".csv"))
+  }
+}
+# 
+# data <- allData
+# geometry <- geometryFiles[[2]]
+# name <- names(geometryFiles)[[2]]
+
+processSensitivePopulation <- function(geometry, name, data){
+  # select the data set of interest 
+  vals <- data[[grep(pattern = name, x = names(data))]]
+  
+  # pull the GEOID from the geometry object 
+  geom <- geometry |>
+    sf::st_drop_geometry()|>
+    dplyr::select("GEOID")
+  # read in and join datasets 
+  for(i in 1:length(vals)){
+    print(i)
+    # read in data 
+    d1 <- readr::read_csv(vals[i])
+    print(names(d1))
+    # some dataset have a row number column... should change that in the export 
+    if(ncol(d1) == 3){
+      d1 <- d1[,2:3]
+    }
+    
+    geom <- geom |>
+      dplyr::left_join(y = d1, by = "GEOID")
+  }
+  # generate the percentile score  
+  output <- geom |>
+    dplyr::select(
+      "GEOID",
+      "Asthma" = "asthma",
+      "Cancer" = "combinedCancer",
+      "Diabetes" = "combinedDiabetes",
+      "Cadiovascular" = "combinedHeart",
+      "Life expectancy" = "lifeExpectancy",
+      "Low birth weight" = "lowBirthRate",
+      "Mental health" = "adj_rate_Prevalence",
+      "Population over 64" = "age_over65",
+      "Population under 5" = "age_under5"    
+    )|>
+    dplyr::mutate(
+      across(where(is.numeric),
+             .fns = list(pcntl = ~cume_dist(.)*100),
+             .names = "{col}_{fn}")
+    )
+  
+  output$sensitivePopulation <- output |>
+    dplyr::select(contains("_pcntl"))|>
+    apply(MARGIN = 1, FUN = gm_mean)
+  
+  # not super happy with the column naming at the moment
+  
+  #export 
+  return(output)
+}
+
+
+#' Generate housingBurden measure
+#'
+#' @param geometryLayers : list of spatial object representing the processing levels
+#' 
+getSensitivePopulation <- function(geometryLayers){
+  # select geometry layers of interest 
+  geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
+  # read in data 
+  data <- list.files("data/products/sensitivePopulation",
+                     pattern = ".csv",
+                     full.names = TRUE,
+                     recursive = TRUE)
+  # organize for the function
+  allData <- list(
+    county = data[grepl(pattern = "county", x = data)],
+    censusTract = data[grepl(pattern = "censusTract", x = data)],
+    censusBlockGroup = data[grepl(pattern = "censusBlockGroup", x = data)]
+  )
+  
+  
+  # established the export 
+  exportPathMain <- "data/products/componentScores"
+  # create export dir
+  exportDir <- exportPathMain
+  if(!dir.exists(exportDir)){
+    dir.create(exportDir)
+  }
+  # process the datasets 
+  results <- purrr::map2(.x = geometryFiles,
+                         .y = names(geometryFiles),
+                         .f = processSensitivePopulation,
+                         data = allData)
+  
+  for(i in seq_along(results)){
+    data <- results[[i]]
+    name <- names(results)[i]
+    write.csv(x = data, file = paste0(exportDir,"/sensitivePopulation_", name , ".csv"))
+  }
+}
+
+
+# probably want to include a summarized MOE process when aggregating the census values 
+# https://www.census.gov/content/dam/Census/library/publications/2018/acs/acs_general_handbook_2018_ch08.pdf
+## basically looks like a rmse error 
+
+# options for geographies c("county", "tract", "block group","block")
+
+### 2024-10-01
+### going to ignore the MOE measures for now and just get the datasets generated. 
+
+### temp name to keep things from run on load
+
+getACS <- function(geometryLayers, overwrite){
+  if(overwrite == TRUE){
+    # select geometry layers of interest 
+    geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
+    
+    # create export dir
+    exportDir <- "data/processed/acs"
+    if(!dir.exists(exportDir)){
+      dir.create(exportDir)
+    }
+    # process the datasets 
+    results <- purrr::map2(.x = geometryFiles,
+                           .y = names(geometryFiles),
+                           .f = pullACS)
+    
+    for(i in seq_along(results)){
+      data <- results[[i]]
+      name <- names(results)[i]
+      write.csv(x = data, file = paste0(exportDir,"/acs_", name , ".csv"))
+    }
+  }else{
+    print("Set overwrite to TRUE if you wish to regerenate the ACS files ")
+  }
+
+}
+
+
+
+pullACS <- function(geometry, name){
+  # conditional to assign geography based on tidy census data standards 
+  if(name == "county"){
+    geography = "county"
+  }
+  if(name == "censusTract"){
+    geography = "tract"
+  }
+  if(name == "censusBlockGroup"){
+    geography = "cbg"
+  }
+  
+  # pull the datasets 
+  acs <- tidycensus::get_acs(
+    geography = geography,
+    variables = c(
+      # under 5
+      "B01001_003",
+      "B01001_027",
+      # over 64
+      paste0("B01001_0", 20:25),
+      paste0("B01001_0", 44:49),
+      #percent people of color
+      "B03002_001",
+      "B03002_003",
+      #Percent low income
+      "C17002_001",
+      "C17002_008",
+      #Percent linguistic isolation
+      "C16002_001",
+      "C16002_004",
+      "C16002_007",
+      "C16002_010",
+      "C16002_013",
+      #Percent less than high school education
+      "B15002_001",
+      paste0("B15002_00", 3:9),
+      "B15002_010",
+      paste0("B15002_0", 20:27),
+      #Percent disability
+      paste0("B18101_", c("001","004","007","010","013","016","019","023",
+                          "026","029","032","035","038")),
+      #total Population
+      "B01003_001",
+      # lead housing 
+      "B25034_001", # total housing units 
+      "B25034_009", # 1950-1959
+      "B25034_010", # 1940-1949
+      "B25034_011", # pre 1939
+      # housing burden
+      "B25070_001", # Total Renters
+      "B25070_007", # 30 to 34.9%
+      "B25070_008", # 35 to 39.9%
+      "B25070_009", # 40 to 49.9%
+      "B25070_010", # 50% or more
+      "B25091_001", # total owner-occupied,
+      # "B25003_002", # confirmation of previous var - total owner occupied,
+      "B25091_008", # 30 to 34.9% - mortgaged
+      "B25091_009", # 35 to 39.9% - mortgaged
+      "B25091_010", # 40 to 49.9% - mortgaged
+      "B25091_011", # 50% or more - mortgaged
+      "B25091_019", # 30 to 34.9% - not mortgaged
+      "B25091_020", # 35 to 39.9% - not mortgaged
+      "B25091_021", # 40 to 49.9% - not mortgaged
+      "B25091_022" # 50% or more - not mortgaged
+    ),
+    state = "08",
+    year = 2022
+  )
+
+  return(acs)
+}  
+  
+#' get EJ Screen data 
+#'
+#' @param geometryLayers - spatial data layers 
+#' @param overwrite - True/False value required to rerun the analysis
+#'
+#' @return
+getEJscreen <- function(geometryLayers, overwrite){
+  if(overwrite == TRUE){
+    # select geometry layers of interest 
+    geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
+    
+    # create export dir
+    exportDir <- "data/processed/ejscreen"
+    if(!dir.exists(exportDir)){
+      dir.create(exportDir)
+    }
+    # process the datasets 
+    results <- purrr::map2(.x = geometryFiles,
+                           .y = names(geometryFiles),
+                           .f = pullEJscreen)
+    
+    for(i in seq_along(results)){
+      data <- results[[i]]
+      name <- names(results)[i]
+      write.csv(x = data, file = paste0(exportDir,"/ejscreen_", name , ".csv"))
+    }
+  }else{
+    print("Set overwrite to TRUE if you wish to regerenate the EJScreen files ")
+  }
+  
+}
+
+
+
+#' Process the EJscreen datasets
+#'
+#' @param geometry - spatial data layer of one of the three geometries of interest 
+#' @param name - the name of the geography layer, used for file paths 
+#'
+#' @return a dataframe of values for a specific geographic area 
+pullEJscreen <- function(geometry, name){
+  # conditional to assign geography based on tidy census data standards 
+  if(name == "censusBlockGroup"){
+    # read in data
+    d1 <- readr::read_csv("data/raw/ejscreen/EJSCREEN_2024_BG_StatePct_with_AS_CNMI_GU_VI.csv")
+  }
+  if(name != "censusBlockGroup"){
+    # read in data
+    d1 <- readr::read_csv("data/raw/ejscreen/EJScreen_2024_Tract_StatePct_with_AS_CNMI_GU_VI.csv")
+  }
+  
+  # pull the datasets and select indicators
+  ejscreen <- d1 |> 
+    dplyr::filter(ST_ABBREV == "CO")|>
+    dplyr::select(
+      GEOID = ID,
+      particulateMatter = PM25,
+      dieselPM = DSLPM,
+      traffic = PTRAF,
+      proxHazWaste = PTSDF,
+      proxNPLsites = PNPL,
+      proxRMPsites = PRMP,
+      wasteWaterDischarge = PWDIS)
+  
+  
+  if(name == "county"){
+    # drop GEOID to county level then sum all values 
+    ejscreen <- ejscreen |>
+      dplyr::mutate(GEOID = str_sub(string = ejscreen$GEOID, start = 1, end = 5))|>
+      dplyr::group_by(GEOID)|>
+      dplyr::summarise_all(mean,na.rm=TRUE)
+  }
+    
+  # return 
+  return(ejscreen)
+}  
+
+
+
+
+
+
+
+#' pullCensusGeographies
+#'
+#' @param overwrite : binary value used to determine if existing data should be overwritten 
+
+#' @export : spatial data layers for the required geographies of Colorado for 2020 
+
+pullCensusGeographies <- function(overwrite = FALSE){
+  # define files 
+  state <- "data/raw/state.gpkg"
+  county <- "data/raw/county.gpkg"
+  censusTract <- "data/raw/censusTract.gpkg"
+  censusTract2010 <- "data/raw/censusTract2010.gpkg"
+  censusBlockGroups <- "data/raw/censusBlockGroups.gpkg"
+  censusBlocks <- "data/raw/censusBlocks.gpkg"
+  
+  # set internal functions for download and export 
+  ## state 
+  getState <- function(path){
+    # download state 
+    stateData <- tigris::states(year = 2020)|>
+      dplyr::filter(GEOID == "08")
+    # export 
+    sf::st_write(stateData, dsn = path,delete_layer = TRUE,quiet = TRUE)
+  }
+  # county 
+  getCounty <- function(path){
+    # download state 
+    countyData <- tigris::counties(state = "08", year = 2020)
+    # export 
+    sf::st_write(countyData, dsn = path, delete_layer = TRUE,quiet = TRUE)
+  }
+  # census tract 
+  getcensusTract <- function(path){
+    # download state 
+    censusTractData <- tigris::tracts(state = "08", year = 2020)
+    # export 
+    sf::st_write(censusTractData, dsn = path, delete_layer = TRUE,quiet = TRUE)
+  }
+  # second census tract for life expectancy data 
+  getcensusTract2010 <- function(path){
+    # download state 
+    censusTractData <- tigris::tracts(state = "08", year = 2010)
+    # export 
+    sf::st_write(censusTractData, dsn = path, delete_layer = TRUE,quiet = TRUE)
+  }
+  
+  # census Block Groups 
+  getcensusBlockGroups <- function(path){
+    # download state 
+    censusBlockGroupsData <- tigris::block_groups(state = "08", year = 2020)
+    # export 
+    sf::st_write(censusBlockGroupsData, dsn = path, delete_layer = TRUE,quiet = TRUE)
+  }
+  # census Blocks 
+  getcensusBlocks <- function(path){
+    # download state 
+    censusBlocksData <- tigris::blocks(state = "08", year = 2020)
+    # export 
+    sf::st_write(censusBlocksData, dsn = path, delete_layer = TRUE,quiet = TRUE )
+  }
+  
+  # Test for the overwrite command 
+  if(overwrite == TRUE){
+    print("grabbing state")
+    getState(path = state)
+    print("grabbing county")
+    getCounty(path = county)
+    print("grabbing census tract")
+    getcensusTract(path = censusTract)
+    print("grabbing census tract 2010")
+    getcensusTract2010(path = censusTract2010)
+    print("grabbing census block group")
+    getcensusBlockGroups(path = censusBlockGroups)
+    print("grabbing census blocks")
+    getcensusBlocks(path = censusBlocks)
+  }else{
+    # check for file then write
+    #state
+    if(!file.exists(state)){
+      getState(path = state)
+    }
+    #county
+    if(!file.exists(county)){
+      getCounty(path = county)
+    }
+    #censusTract
+    if(!file.exists(censusTract)){
+      getcensusTract(path = censusTract)
+    }
+    #getcensusBlockGroups
+    if(!file.exists(censusBlockGroups)){
+      getcensusBlockGroups(path = censusBlockGroups)
+    }
+    #censusBlocks
+    if(!file.exists(censusBlocks)){
+      getcensusBlocks(path = censusBlocks)
+    }
+  }
+}
+
+
+
+# load in census blocks ---------------------------------------------------
+## this dataset was download from tigis 2020 census 
+## converted to a gpkg in QGIS 
+## uploaded to drive, then download here
+## drive link no longer exists, just including reference here for example. 
+# library(googledrive)
+# d1 <- googledrive::drive_download(file = googledrive::as_id("https://drive.google.com/file/d/1SjeoPLr0Go4UFTOwUXksZLekhVelkSFM/view?usp=drive_link"))
+# 
+# filePath <- "data/raw/haps/APENS_7_15_2024.xlsx"
+# data <- d1
+# geometry <- geometryFiles[[1]]
+
+processAir <- function(data){
+  # read in reference layers 
+  blocks <- sf::st_read("data/processed/geographies/blocksWithAdjustedPop.gpkg")
+  # block group relations 
+  blockGroupNeighbors <- readRDS("data/processed/geographies/bgNeighbors.RDS")
+  # pull census block groups 
+  cbg <- sf::st_read("data/processed/geographies/censusBlockGroup.gpkg")
+  
+  # drop site with no lat lon
+  d1 <- data |>
+    dplyr::filter(SITE_X_COORDINATE != 0)
+  ### Generate 5 year mean values for all pollutants
+  d2 <- d1 |>
+    dplyr::select(APCD_SITE_ID,
+                  SITE_100414_ESTIM,
+                  SITE_106467_ESTIM,
+                  SITE_106990_ESTIM,
+                  SITE_18540299_ESTIM,
+                  SITE_50000_ESTIM,
+                  SITE_56235_ESTIM,
+                  SITE_71432_ESTIM,
+                  SITE_75070_ESTIM,
+                  SITE_75218_ESTIM,
+                  SITE_7782505_ESTIM,
+                  SITE_822060_ESTIM,
+                  SITE_91203_ESTIM,
+                  SITE_ASC_ESTIM,
+                  SITE_CE_ESTIM
+    )|>
+    dplyr::group_by(APCD_SITE_ID)%>%
+    dplyr::summarise_all(mean ,na.rm = TRUE)
+  
+  ### normalize data based on volume of emission
+  d2[,2:15] <- apply(d2[,2:15], MARGIN = 2, FUN = normalizeVector)
+  ### calculate total
+  d2$total <- rowSums(d2[,c(-1)], na.rm = TRUE)
+
+  
+  # create a spatial object 
+  sp1 <- d1 |>
+    dplyr::select("APCD_SITE_ID",   # rename for input into buffer process
+                            "SITE_X_COORDINATE",
+                            "SITE_Y_COORDINATE")|>
+    st_as_sf(coords =c("SITE_X_COORDINATE","SITE_Y_COORDINATE"),crs=4269 )|>
+    dplyr::left_join(y = d2, by = "APCD_SITE_ID" )|> 
+    dplyr::filter(total != 0)|>
+    dplyr::select("APCD_SITE_ID", "total") |>
+    dplyr::distinct()|>
+    sf::st_transform(crs = crs(cbg))
+  
+
+  # returns a postition index on the interestion of the cbg per each mining location
+  t1 <- sf::st_intersects(x = sp1,
+                          y = cbg,
+                          sparse = TRUE
+  )
+  # when I unlist() the t1 object I'm looking a row... not sure why so using a for loop to assign data
+  ## item 84, has a lat value outside of the state so it can not reference cbg 
+  sp1$cbg_geoid <- NA
+  
+  for(i in 1:length(t1)){
+    index <- cbg$GEOID[t1[[i]]]
+    if(identical(index, character(0))){
+      sp1$cbg_geoid[i] <- NA
+    }else{
+      sp1$cbg_geoid[i] <- index
+    }
+  }
+  
+  # remove any na values 
+  sp1_clean <- sp1 |> dplyr::filter(!is.na(cbg_geoid))
+  
+  # define the site score value (different for each indicator. )
+  sp1_clean$siteScore <- sp1_clean$total
+  
+  
+  
+  
+  
+  
+  # define the index for the map function
+  index <- 1:nrow(sp1_clean)
+  # call the calculate score function 
+  exportFile <-  "data/products/environmentalExposures/airQuality/detailsOnDistanceScoring.csv"
+  
+  ## conditional to avoid timely geoprocessing step 
+  if(!file.exists(exportFile)){
+    for(i in index){
+      val <- calculateDistanceScore(index = i,
+                                    sites = sp1_clean, 
+                                    blockGroupNeighbors= blockGroupNeighbors,
+                                    blocks = blocks )
+      if(i == 1){
+        scores <- val
+      }else{
+        scores <- scores |> bind_rows(val)
+      }
+    }
+    
+    # export here because this is a big geoprocessing step 
+    write.csv(scores, file = exportFile)
+  }else{
+    scores <- readr::read_csv(exportFile)
+  }
+  
+  
+  formatedScores <- scores |> 
+    # summarize to agggregate measures to the blockGEOID 
+    dplyr::group_by(GEOID20)|>
+    dplyr::summarise(aggregatedNoPopScore = sum(nonPopScore),
+                     aggregatedPercentPopScore = sum(percentPopScore),
+                     numberOfSource = n())
+  write.csv(formatedScores, file = "data/products/environmentalExposures/airQuality/aggratedScoreValues.csv")
+  
+  # group these by census block group, census tract, county 
+  allScores <- formatedScores |> 
+    dplyr::mutate(
+      cGEOID = stringr::str_sub(GEOID20, start = 1, end = 5),
+      ctGEOID = stringr::str_sub(GEOID20, start = 1, end = 11),
+      bgGEOID = stringr::str_sub(GEOID20, start = 1, end = 12)
+    )
+  write.csv(allScores, file = "data/products/environmentalExposures/airQuality/airQuality_census.csv")
+  # 
+  # generate aggregates score measures 
+  ## county
+  countyScores <- allScores |> 
+    dplyr::group_by(cGEOID)|>
+    dplyr::summarise(PercentPopScore = sum(aggregatedPercentPopScore))|>
+    dplyr::select(
+      "GEOID" = cGEOID,
+      "airToxins" = PercentPopScore,
+    )
+  ## censustract 
+  censusTractScores <- allScores |> 
+    dplyr::group_by(ctGEOID)|>
+    dplyr::summarise(PercentPopScore = sum(aggregatedPercentPopScore))|>
+    dplyr::select(
+      "GEOID" = ctGEOID,
+      "airToxins" = PercentPopScore,
+    )
+  ## census block group 
+  censusBlockGroupScores <- allScores |> 
+    dplyr::group_by(bgGEOID)|>
+    dplyr::summarise(PercentPopScore = sum(aggregatedPercentPopScore))|>
+    dplyr::select(
+      "GEOID" = bgGEOID,
+      "airToxins" = PercentPopScore,
+    )
+  return(
+    list(
+      "county" = countyScores,
+      "censusTract" = censusTractScores,
+      "censusBlockGroup" = censusBlockGroupScores
+    )
+  )
+
+}
+
+
+
+
+#' Generate airQuality measure
+#'
+#' @param filePath : location of airQuality raster data
+#' @param geometryLayers : list of spatial object representing the processing levels
+#' @return : a list of results at the three processing levels. -- think about if this is needed out not
+#' 
+getAir <- function(filePath,  geometryLayers){
+  # select geometry layers of interest 
+  geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
+  # read in data 
+  d1 <- readxl::read_xlsx(path = filePath)
+  # established the export 
+  exportPathMain <- "data/products/environmentalExposures"
+  # create export dir
+  exportDir <- paste0(exportPathMain,"/airQuality")
+  if(!dir.exists(exportDir)){
+    dir.create(exportDir)
+  }
+  # process the datasets 
+  results <- processAir(data = d1)
+  
+  for(i in seq_along(results)){
+    data <- results[[i]]
+    name <- names(results)[i]
+    write.csv(x = data, file = paste0(exportDir,"/airQuality_", name , ".csv"))
+  }
+}
+
+processAsthma <- function(geometry, name, data){
+  
+    # print statement to define process 
+    print(paste0("Processing asthma data at the ", name, " geographic scale"))
+    if(name == "county"){
+      output <- data |> 
+        dplyr::filter(geog == "County")|>
+        dplyr::mutate(GEOID = paste0("0",geoid))|>
+        dplyr::select(GEOID, "asthma" = adj_rate)
+    }else{
+      censustrack <- data |> 
+        dplyr::filter(geog == "Census tract") |>
+        dplyr::mutate(GEOID = paste0("0",geoid))|>
+        dplyr::select(GEOID, adj_rate)
+    }
+    
+    if(name == "censusTract"){
+      output  <- censustrack |>
+        dplyr::select(GEOID, "asthma" = adj_rate)
+    }
+    if(name == "censusBlockGroup"){
+      # shorten the cbg geoid and join to the data at census level. 
+      output <- st_drop_geometry(geometry) |>
+        dplyr::mutate(GEOID2 = str_sub(GEOID, start = 1, end = 11)) |>
+        dplyr::left_join(censustrack,  by = c("GEOID2" = "GEOID")) |>
+        dplyr::select(GEOID, asthma = adj_rate)
+    }
+  
+  # issues 
+  
+  return(output)
+}
+
+
+
+
+#' Generate Asthma measure
+#'
+#' @param filePath : location of Asthma raster data
+#' @param geometryLayers : list of spatial object representing the processing levels
+#' @return : a list of results at the three processing levels. -- think about if this is needed out not
+#' 
+getAsthma <- function(filePath,  geometryLayers){
+  # select geometry layers of interest 
+  geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
+  # read in data 
+  d1 <- read.csv(filePath) |>
+    dplyr::filter(pop>0)|>
+    dplyr::mutate(adj_rate = as.numeric(adj_rate))
+  # established the export 
+  exportPathMain <- "data/products/sensitivePopulation"
+  # create export dir
+  exportDir <- paste0(exportPathMain,"/asthma")
+  if(!dir.exists(exportDir)){
+    dir.create(exportDir)
+  }
+  # process the datasets 
+  ## in this case we need the names list as a reference for what geography is being used 
+  results <- purrr::map2(.x = geometryFiles,
+                         .y = names(geometryFiles),
+                        .f = processAsthma,
+                        data = d1)
+  
+  for(i in seq_along(results)){
+    data <- results[[i]]
+    name <- names(results)[i]
+    write.csv(x = data, file = paste0(exportDir,"/asthma_", name , ".csv"))
+  }
+}
+
+
+
+# 
+# filePath <- "data/raw/cancer/CONUS_L50dBA_sumDay_exi.tif"
+# data <- allData
+# geometry <- geometryFiles[[3]]
+# name <- names(geometryFiles)[[3]]
+
+processCancer <- function(geometry, name, data){
+  
+  # Using the county level prevalance data for all grographies 
+  d1 <- data$county |>
+    dplyr::filter(Measure =="Cancer (non-skin) or melanoma among adults",
+                  Data_Value_Type == "Age-adjusted prevalence" )|>
+    dplyr::mutate(GEOID = paste0("0",LocationID))|>
+    dplyr::select(
+      GEOID,
+      adj_rate_Prevalence = Data_Value
+    )
+  
+  
+  # process based on geography 
+  if(name == "county"){
+
+    # mortality data
+    d2 <- data$mortality |>
+      dplyr::filter(geog == "County")|>
+      dplyr::mutate(
+          GEOID = paste0("0", geoid),
+          adj_rate = as.numeric(adj_rate)
+      )|>
+      dplyr::select(
+        GEOID,
+        "adj_rate_mortality" = adj_rate
+      )
+    
+    # join datasets and normalize the distributions 
+    output <- d1 |>
+      dplyr::left_join(d2, by = "GEOID")|>
+      dplyr::mutate(
+        cancerPrevalence_pcntl = cume_dist(adj_rate_Prevalence)*100,
+        cancerMortality_pcntl = cume_dist(adj_rate_mortality )*100
+      ) |>
+      dplyr::select("GEOID","adj_rate_Prevalence","adj_rate_mortality","cancerPrevalence_pcntl", "cancerMortality_pcntl" )
+  }
+  # condition for census tract and census block group 
+  if(name != "county"){
+    # process the datasets 
+    
+    # mortality 
+    d2 <- data$mortality |>
+      dplyr::filter(geog == "Census tract")|>
+      dplyr::mutate(
+        GEOID = paste0("0", geoid)
+      )|>
+      dplyr::select(
+        GEOID,
+        "adj_rate_mortality" = adj_rate
+      )
+    # set county FIPS for join 
+    d2$geoid2 <- stringr::str_sub(d2$GEOID, start = 1, end = 5)
+    
+    # join datasets 
+    ## need to add a county GEOID to make the 
+    output <- d2 |>
+      dplyr::left_join(d1, by = c("geoid2" = "GEOID"))|>
+      dplyr::mutate(
+        cancerPrevalence_pcntl = cume_dist(adj_rate_Prevalence)*100,
+        cancerMortality_pcntl = cume_dist(adj_rate_mortality )*100
+      )|>
+      dplyr::select("GEOID","adj_rate_Prevalence","adj_rate_mortality","cancerPrevalence_pcntl", "cancerMortality_pcntl" )
+
+    
+    # assign output based on geography name 
+    if(name == "censusBlockGroup"){
+      geometry$geoid2 <- str_sub(string = geometry$GEOID, start = 1, end = 11)
+      # join to output and reformat
+      output <- geometry |>
+        sf::st_drop_geometry()|>
+        dplyr::left_join(y =  output, by = c("geoid2"= "GEOID"))|>
+        dplyr::select("GEOID","adj_rate_Prevalence","adj_rate_mortality","cancerPrevalence_pcntl", "cancerMortality_pcntl" )
+    }
+  }
+
+  # output
+  output <- output |>
+    dplyr::rowwise()|>
+    dplyr::mutate(combinedCancer = mean(c(cancerPrevalence_pcntl,cancerMortality_pcntl)))|>
+    dplyr::select("GEOID", "combinedCancer")
+  
+  return(output)
+}
+
+
+
+
+#' Generate cancer measure
+#'
+#' @param filePath : location of cancer raster data
+#' @param geometryLayers : list of spatial object representing the processing levels
+#' @return : a list of results at the three processing levels. -- think about if this is needed out not
+#' 
+getCancer <- function(geometryLayers){
+  # select geometry layers of interest 
+  geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
+  # read in data 
+  ## CDC data --- currently using age adjust prevalence 
+  cdcTracts <- read.csv("data/raw/CDC_places/PLACES_Tracts_24_CO.csv")
+  cdcCounty <- read.csv("data/raw/CDC_places/PLACES_County_24_CO.csv")
+  
+  ## state data 
+  mortality <- read.csv("data/raw/mortalityData/co_malignantcancer_death_nosupp_1822.csv")
+
+  # gather dataset for the function  
+  allData <- list(
+    tract = cdcTracts,
+    county = cdcCounty,
+    mortality = mortality
+  )
+  # established the export 
+  exportPathMain <- "data/products/sensitivePopulation"
+  # create export dir
+  exportDir <- paste0(exportPathMain,"/cancer")
+  if(!dir.exists(exportDir)){
+    dir.create(exportDir)
+  }
+  # process the datasets 
+  results <- purrr::map2(.x = geometryFiles,
+                        .y = names(geometryFiles),
+                        .f = processCancer,
+                        data = allData)
+  
+  for(i in seq_along(results)){
+    data <- results[[i]]
+    name <- names(results)[i]
+    write.csv(x = data, file = paste0(exportDir,"/cancer_", name , ".csv"))
+  }
+}
+# 
+# data <- allData
+# geometry <- geometryFiles[[1]]
+# name <- names(geometryFiles)[[1]]
+
+processDiesel <- function(geometry, name, data){
+  # select the data set of interest 
+  vals <- data[[grep(pattern = name, x = names(data))]] |> as.data.frame()
+  
+  # structure then generate and select measures of concern
+  output <- vals |> 
+    select("GEOID", "dieselPM")
+  #export 
+  return(output)
+}
+
+
+#' Generate diesel measure
+#'
+#' @param geometryLayers : list of spatial object representing the processing levels
+#' 
+getDiesel <- function(geometryLayers){
+  # select geometry layers of interest 
+  geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
+  # read in data 
+  data <- list.files("data/processed/ejscreen",pattern = ".csv",full.names = TRUE)
+  # organize for the function
+  allData <- list(
+    county = read_csv(data[grepl(pattern = "county", x = data)]),
+    censusTract = read_csv(data[grepl(pattern = "censusTract", x = data)]),
+    censusBlockGroup = read_csv(data[grepl(pattern = "censusBlockGroup", x = data)])
+  )
+  
+  
+  # established the export 
+  exportPathMain <- "data/products/environmentalExposures"
+  # create export dir
+  exportDir <- paste0(exportPathMain,"/diesel")
+  if(!dir.exists(exportDir)){
+    dir.create(exportDir)
+  }
+  # process the datasets 
+  results <- purrr::map2(.x = geometryFiles,
+                         .y = names(geometryFiles),
+                         .f = processDiesel,
+                         data = allData)
+  
+  for(i in seq_along(results)){
+    data <- results[[i]]
+    name <- names(results)[i]
+    write.csv(x = data, file = paste0(exportDir,"/diesel_", name , ".csv"))
+  }
+}
+# 
+# data <- allData
+# geometry <- geometryFiles[[2]]
+# name <- names(geometryFiles)[[2]]
+
+processDiabetes <- function(geometry, name, data){
+  
+  # Using the county level prevalance data for all grographies 
+  d1 <- data$county |>
+    dplyr::filter(Measure == "Diagnosed diabetes among adults",
+                  Data_Value_Type == "Age-adjusted prevalence" )|>
+    dplyr::mutate(GEOID = paste0("0",LocationID))|>
+    dplyr::select(
+      GEOID,
+      adj_rate_Prevalence = Data_Value
+    )
+  
+  
+  # process based on geography 
+  if(name == "county"){
+    
+    # mortality data
+    d2 <- data$mortality |>
+      dplyr::filter(geog == "County")|>
+      dplyr::mutate(
+        GEOID = paste0("0", geoid),
+        adj_rate = as.numeric(adj_rate)
+      )|>
+      dplyr::select(
+        GEOID,
+        "adj_rate_mortality" = adj_rate
+      )
+    
+    # join datasets and normalize the distributions 
+    output <- d1 |>
+      dplyr::left_join(d2, by = "GEOID")|>
+      dplyr::mutate(
+        diabetesPrevalence_pcntl = cume_dist(adj_rate_Prevalence)*100,
+        diabetesMortality_pcntl = cume_dist(adj_rate_mortality )*100
+      ) |>
+      dplyr::select("GEOID","adj_rate_Prevalence","adj_rate_mortality","diabetesPrevalence_pcntl", "diabetesMortality_pcntl" )
+  }
+  # condition for census tract and census block group 
+  if(name != "county"){
+    # process the datasets 
+    
+    # mortality 
+    d2 <- data$mortality |>
+      dplyr::filter(geog == "Census tract")|>
+      dplyr::mutate(
+        GEOID = paste0("0", as.character(geoid))
+      )|>
+      dplyr::select(
+        GEOID,
+        "adj_rate_mortality" = adj_rate
+      )
+    # set county FIPS for join 
+    d2$geoid2 <- stringr::str_sub(d2$GEOID, start = 1, end = 5)
+    
+    # join datasets 
+    ## need to add a county GEOID to make the 
+    output <- d2 |>
+      dplyr::left_join(d1, by = c("geoid2" = "GEOID"))|>
+      dplyr::mutate(
+        diabetesPrevalence_pcntl = cume_dist(adj_rate_Prevalence)*100,
+        diabetesMortality_pcntl = cume_dist(adj_rate_mortality )*100
+      )|>
+      dplyr::select("GEOID","adj_rate_Prevalence","adj_rate_mortality","diabetesPrevalence_pcntl", "diabetesMortality_pcntl" )
+    
+    
+    # assign output based on geography name 
+    if(name == "censusBlockGroup"){
+      geometry$geoid2 <- str_sub(string = geometry$GEOID, start = 1, end = 11)
+      # join to output and reformat
+      output <- geometry |>
+        sf::st_drop_geometry()|>
+        dplyr::left_join(y =  output, by = c("geoid2"= "GEOID"))|>
+        dplyr::select("GEOID","adj_rate_Prevalence","adj_rate_mortality","diabetesPrevalence_pcntl", "diabetesMortality_pcntl" )
+    }
+  }
+  
+  # output
+  output <- output |>
+    dplyr::rowwise()|>
+    dplyr::mutate(combinedDiabetes = mean(c(diabetesPrevalence_pcntl,diabetesMortality_pcntl)))|>
+    dplyr::select("GEOID", "combinedDiabetes")
+  return(output)
+}
+
+
+
+
+#' Generate diabetes measure
+#'
+#' @param filePath : location of diabetes raster data
+#' @param geometryLayers : list of spatial object representing the processing levels
+#' @return : a list of results at the three processing levels. -- think about if this is needed out not
+#' 
+getDiabetes <- function(geometryLayers){
+  # select geometry layers of interest 
+  geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
+  # read in data 
+  ## CDC data 
+  cdcTracts <- read.csv("data/raw/CDC_places/PLACES_Tracts_24_CO.csv")
+  cdcCounty <- read.csv("data/raw/CDC_places/PLACES_County_24_CO.csv")
+  
+  ## state data 
+  mortality <- read.csv("data/raw/mortalityData/co_diabetesmellitus_death_nosupp_1822.csv")
+  
+  # gather dataset for the function  
+  allData <- list(
+    tract = cdcTracts,
+    county = cdcCounty,
+    mortality = mortality
+  )
+  # established the export 
+  exportPathMain <- "data/products/sensitivePopulation"
+  # create export dir
+  exportDir <- paste0(exportPathMain,"/diabetes")
+  if(!dir.exists(exportDir)){
+    dir.create(exportDir)
+  }
+  # process the datasets 
+  results <- purrr::map2(.x = geometryFiles,
+                         .y = names(geometryFiles),
+                         .f = processDiabetes,
+                         data = allData)
+  
+  for(i in seq_along(results)){
+    data <- results[[i]]
+    name <- names(results)[i]
+    write.csv(x = data, file = paste0(exportDir,"/diabetes_", name , ".csv"))
+  }
+}
+# 
+# data <- allData
+# geometry <- geometryFiles[[3]]
+# name <- names(geometryFiles)[[3]]
+
+processDisability <- function(geometry, name, data){
+  
+  if(name != "censusBlockGroup"){
+    # select the data set of interest 
+    vals <- data[[grep(pattern = name, x = names(data))]] |> as.data.frame()
+    
+    # structure then generate and select measures of concern
+    output <- structureACS(vals) |>
+      dplyr::group_by(GEOID)|>
+      dplyr::mutate(
+        percent_disability = sum(B18101_004, B18101_007,
+                                 B18101_010, B18101_013,
+                                 B18101_016, B18101_019,
+                                 B18101_023, B18101_026,
+                                 B18101_029, B18101_032,
+                                 B18101_035, B18101_038 ) / B18101_001)|>
+      select("GEOID", "percent_disability")
+  }else{
+    # read in census tract data 
+    vals <- data[[grep(pattern = "censusTract", x = names(data))]] |> as.data.frame()
+    # generate census track values 
+    ctVals <- structureACS(vals) |>
+      dplyr::group_by(GEOID)|>
+      dplyr::mutate(
+        percent_disability = sum(B18101_004, B18101_007,
+                                 B18101_010, B18101_013,
+                                 B18101_016, B18101_019,
+                                 B18101_023, B18101_026,
+                                 B18101_029, B18101_032,
+                                 B18101_035, B18101_038 ) / B18101_001)|>
+      select("GEOID", "percent_disability")
+    # join to census block group 
+    output <- geometry |>
+      sf::st_drop_geometry() |>
+      dplyr::mutate(geoid2 = stringr::str_sub(GEOID, start = 1, end = 11))|>
+      dplyr::left_join(y = ctVals, by = c("geoid2" = "GEOID"))|>
+      select("GEOID", "percent_disability")
+    
+  }
+  
+  
+  #export 
+  return(output)
+}
+
+
+#' Generate disability measure
+#'
+#' @param geometryLayers : list of spatial object representing the processing levels
+#' 
+getDisability <- function(geometryLayers){
+  # select geometry layers of interest 
+  geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
+  # read in data 
+  data <- list.files("data/processed/acs",pattern = ".csv",full.names = TRUE)
+  # organize for the function
+  allData <- list(
+    county = read_csv(data[grepl(pattern = "county", x = data)]),
+    censusTract = read_csv(data[grepl(pattern = "censusTract", x = data)]),
+    censusBlockGroup = read_csv(data[grepl(pattern = "censusBlockGroup", x = data)])
+  )
+  
+  
+  # established the export 
+  exportPathMain <- "data/products/demographics"
+  # create export dir
+  exportDir <- paste0(exportPathMain,"/disability")
+  if(!dir.exists(exportDir)){
+    dir.create(exportDir)
+  }
+  # process the datasets 
+  results <- purrr::map2(.x = geometryFiles,
+                         .y = names(geometryFiles),
+                         .f = processDisability,
+                         data = allData)
+  
+  for(i in seq_along(results)){
+    data <- results[[i]]
+    name <- names(results)[i]
+    write.csv(x = data, file = paste0(exportDir,"/disability_", name , ".csv"))
+  }
+}
+# 
+# filePath <- "data/raw/drinkingWater/CONUS_L50dBA_sumDay_exi.tif"
+# data <- allData
+# geometry <- geometryFiles[[3]]
+# name <- names(geometryFiles)[[3]]
+
+processDrinkingWater <- function(geometry, name, data){
+  # rename id variable 
+  allPWS <-data$allPWS |>
+    rename(PWS.ID = `PWS ID (Links to Records)`)
+  
+  # removing water haulers, keeping only Community systems, and calculating pop served per county
+  county_popserved <- allPWS |>
+    filter(`Regulated As Water Hauler?` == "No", 
+           `Federal Type Full Name` == "Community")|>
+    group_by(County) |>
+    summarise(PopServed = sum(Population))
+  
+  #violation data 
+  v.2013.2023.duration <- data$violations |>
+    mutate(
+      Begin.Date = as.Date(`Begin Date`, format = "%d-%b-%y"),
+      End.Date = as.Date(`End Date`, format = "%d-%b-%y"),
+      Year = as.numeric(format(Begin.Date, "%Y")),
+      Unresolved = ifelse(Resolved == "No", 1, 0),
+      Duration = as.numeric(difftime(End.Date, Begin.Date, units = "weeks")) / 52.25
+    ) |>
+    filter(Year < 2024, 
+           Year > 2012,
+           `Violation Name` %in% c(
+             "EXCEEDED THE MAXIMUM CONTAMINANT LEVEL",
+             "STATE FLUORIDE MCL",
+             "MCL (TCR), ACUTE",
+             "MCL (TCR), MONTHLY",
+             "MRDL, ACUTE (CHL.DIOXIDE)",
+             "STATE TREATMENT TECHNIQUE LEVEL"
+           )
+    ) |> 
+    dplyr::select(
+      PWS.ID =  "PWS ID", 
+      Name, 
+      Violation.Name = "Violation Name", 
+      Analyte.Name = "Analyte Name" , 
+      Unresolved, 
+      County, 
+      Year, 
+      Duration, 
+      Begin.Date, 
+      End.Date)
+  
+  
+  ### lead data 
+  
+  Pb90.duration <- data$lead %>%
+    rename(Collection.Date = "Collection Date (Date & Time)") %>%
+    mutate(DateNew = dmy(Collection.Date),
+           Year = year(DateNew),
+           AboveActionLevel = ifelse(Measure > 15, 1, 0),  
+           Violation.Name = "Lead 90th Percentile",
+           Analyte.Name = "Lead")%>%
+    filter(Year < 2024,
+           Year > 2012)%>%
+    arrange(DateNew) %>%
+    group_by(`PWS ID`) %>%
+    mutate(Unresolved = case_when(
+      DateNew == max(DateNew) & AboveActionLevel == 1 ~ 1,
+      AboveActionLevel == 0 ~ NA_real_,
+      TRUE ~ 0
+    ),
+    End.Date = lead(DateNew)) %>%
+    ungroup()%>%
+    group_by(`PWS ID`) %>%
+    mutate(Duration = case_when(
+      Unresolved == 1 ~ as.numeric(difftime(as.Date("12/31/2020", format = "%m/%d/%Y"), DateNew, units = "weeks"))/52.25, 
+      Unresolved == 0 ~ as.numeric(difftime(lead(DateNew), DateNew,  units = "weeks"))/52.25,
+      TRUE ~ NA_real_
+    ))%>%
+    ungroup()%>%
+    filter(AboveActionLevel == 1) %>%
+    select( PWS.ID =  "PWS ID", Name, Violation.Name, Analyte.Name, Unresolved, County, Year, Duration, Begin.Date = DateNew, End.Date)
+  
+  
+  #### Combine violation datasets ----
+  
+  AllHBVs.d <- rbind(v.2013.2023.duration, Pb90.duration)
+  
+  # Trim leading and trailing spaces from PWS.ID in AllHBVs.d
+  AllHBVs.d$PWS.ID <- trimws(AllHBVs.d$PWS.ID)
+  
+  # join to the data on districts 
+  AllHBVs_pop.d <- merge(AllHBVs.d, allPWS, by = c("PWS.ID")) %>%
+    select(PWS.ID, Name=Name.x, Violation.Name, Analyte.Name, Unresolved, Duration, County=County.x, Year, Population)
+
+  # generate measure for the scores 
+  System.Duration <- AllHBVs_pop.d %>%
+    group_by(PWS.ID, Name, County) %>%
+    summarise(ViolationCount = n(),
+              Duration = sum(Duration),
+              Population = mean(Population)) %>%
+    ungroup()%>%
+    mutate(numerator = Duration*Population)
+  
+  county.duration <- merge(System.Duration, county_popserved, by = "County", all = T)
+  # assign a zero for all NA values  --- this needs to be declared in the documentation 
+  county.duration[is.na(county.duration)] <- 0
+  
+  # summaize into final table 
+  CountyViolations <- county.duration %>%
+    group_by(County, PopServed) %>%
+    summarise(ViolationCount = sum(ViolationCount),
+              WeightedAverage = ifelse(ViolationCount > 0, sum(numerator)/PopServed, NA),
+              TotalViolationYears = sum(Duration),
+              AffectedPopulation = sum(Population))%>%
+    group_by(County, ViolationCount, AffectedPopulation, TotalViolationYears, WeightedAverage) %>%
+    summarise(PopServed = mean(PopServed)) %>%
+    ungroup() %>%
+    mutate(Percentile = percent_rank(WeightedAverage)*100,
+           PercentPopulationAffected = 100*AffectedPopulation/PopServed) %>%
+    select(County, PopServed, AffectedPopulation, PercentPopulationAffected, 
+           ViolationCount, TotalViolationYears, WeightedAverage, Percentile)
+  
+  # join to county geometry to get the GEOID 
+  countyGeom <- sf::st_read("data/processed/geographies/county.gpkg")
+  
+  # reformat names 
+  CountyViolations$NAME <- stringr::str_to_title(string = CountyViolations$County)
+  
+  # join dataset and simplify 
+  violationsGEOID <- dplyr::left_join(x = countyGeom, y = CountyViolations, by = c("NAME")) |>
+    sf::st_drop_geometry()|>
+    dplyr::select(-NAME,County)
+  
+  # process based on geography 
+  if(name == "county"){
+    
+    # mortality data
+    output <- violationsGEOID
+  }
+  # condition for census tract and census block group 
+  if(name != "county"){
+    # process down geometry  
+    output <- geometry |>
+      sf::st_drop_geometry()|>
+      dplyr::mutate(
+        geoid2 = stringr::str_sub(GEOID, start = 1, end = 5)
+      )|>
+      dplyr::left_join(y = violationsGEOID, by = c("geoid2" ="GEOID"))|>
+      dplyr::select(-geoid2) 
+  }
+  
+  # output
+  return(output)
+}
+
+
+
+
+#' Generate drinkingWater measure
+#'
+#' @param filePath : location of drinkingWater raster data
+#' @param geometryLayers : list of spatial object representing the processing levels
+#' @return : a list of results at the three processing levels. -- think about if this is needed out not
+#' 
+getDrinkingWater <- function(geometryLayers){
+  # select geometry layers of interest 
+  geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
+  # read in data 
+  ## CDC data --- currently using age adjust prevalence 
+  allPWS <- read_csv("data/raw/drinkingWater/AllPWS_CommunityNTNC_24_1_7.csv")
+  lead <- read_csv("data/raw/drinkingWater/Lead90th_24_1_7.csv")
+  violations <- read_csv("data/raw/drinkingWater/violations2013_2023.csv")
+
+  # gather dataset for the function  
+  allData <- list(
+    allPWS = allPWS,
+    lead = lead,
+    violations = violations
+  )
+  # established the export 
+  exportPathMain <- "data/products/environmentalExposures"
+  # create export dir
+  exportDir <- paste0(exportPathMain,"/drinkingWater")
+  if(!dir.exists(exportDir)){
+    dir.create(exportDir)
+  }
+  # process the datasets 
+  results <- purrr::map2(.x = geometryFiles,
+                         .y = names(geometryFiles),
+                         .f = processDrinkingWater,
+                         data = allData)
+  
+  for(i in seq_along(results)){
+    data <- results[[i]]
+    name <- names(results)[i]
+    write.csv(x = data, file = paste0(exportDir,"/drinkingWater_", name , ".csv"))
+  }
+}
+
+# structure  --------------------------------------------------------------
+# 
+# filePath <- "data/raw/drought/dm_export_20190101_20231231.csv"
+# data <- read.csv(filePath)
+# geometry <- geometries[[1]]
+
+processDrought <- function(geometry, data){
+  # combine three columns to show the percentage of counties within the three highest
+  # drought categories at each time stamp 
+  d1 <- data |>
+    dplyr::mutate(FIPS = paste0("0",FIPS))|>
+    rowwise() |>
+    mutate(percentArea = sum(D2,D3,D4)) # drought intensity categories 
+  # calculate average area in drought
+  d2 <- d1  |>
+    dplyr::select(FIPS,percentArea)  |>
+    dplyr::group_by(FIPS)|>
+    dplyr::summarise(averageAreaInDrought = mean(percentArea), sumAreaInDrought = sum(percentArea), totalWeeksConsidered = n())
+  # calculate number of weeks with some drought
+  d3 <- d1 |>
+    dplyr::filter(percentArea != 0)|>
+    dplyr::select(FIPS,percentArea)  |>
+    dplyr::group_by(FIPS)|>
+    dplyr::summarise(weeksWithDrought = n())
+  # sum values in cat d2 d3 adn d4
+  d5 <- dplyr::left_join(d2, d3, by ="FIPS")|>
+    dplyr::mutate(
+      percentTimeInDrought = (weeksWithDrought/totalWeeksConsidered)*100)
+    
+  # join to goemetry elements
+  output <- sf::st_drop_geometry(geometry)|>
+    dplyr::mutate("FIPS" = str_sub(GEOID, start = 1, end = 5))|>
+    dplyr::left_join(d5, by ="FIPS")|>
+    dplyr::select("GEOID",
+                  "averageAreaInDrought",
+                  "sumAreaInDrought",
+                  "weeksWithDrought",
+                  "percentTimeInDrought")
+  
+  return(output)
+}
+
+
+
+
+#' Generate drought measure
+#'
+#' @param filePath : location of drought raster data
+#' @param geometryLayers : list of spatial object representing the processing levels
+#' @return : a list of results at the three processing levels. -- think about if this is needed out not
+#' 
+getDrought <- function(filePath,  geometryLayers){
+  # select geometry layers of interest 
+  geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
+  # read in data 
+  d1 <- read.csv(filePath)
+  # established the export 
+  exportPathMain <- "data/products/climateVulnerability"
+  # create export dir
+  exportDir <- paste0(exportPathMain,"/drought")
+  if(!dir.exists(exportDir)){
+    dir.create(exportDir)
+  }
+  # process the datasets 
+  results <- purrr::map(.x = geometryFiles,
+                        .f = processDrought,
+                        data = d1)
+  
+  for(i in seq_along(results)){
+    data <- results[[i]]
+    name <- names(results)[i]
+    write.csv(x = data, file = paste0(exportDir,"/drought_", name , ".csv"))
+  }
+}
+
+# 
+# filePath <- "data/raw/floodplains/floodHazard.shp"
+# data <- v1
+# geometry <- geometryFiles[[1]]
+
+processFlood <- function(geometry, name, data){
+  # process the flood plain data 
+  shp <- data |>
+    dplyr::filter(ZONE_SUBTY =="FLOODWAY") |>
+    sf::st_transform(crs = st_crs(geometry))
+  
+  # dataframe to hold information
+  geom <- geometry |>
+    dplyr::mutate(
+      totalArea = sf::st_area(geometry),
+      floodplainPercent = 0
+    )|>
+    as.data.frame()|>
+    dplyr::select(GEOID, totalArea,floodplainPercent)
+  
+  # test for intersection with geometry -- index of flood plain features within the give geography
+  t1 <- sf::st_intersects(geometry, shp, sparse = TRUE)
+  
+  for(i in 1:nrow(geom)){
+    if(length(t1[[i]])==0){
+      geom$floodplainPercent[i] <- 0
+    }else{
+      #subset floodplain data based on overlap
+      # clip to area county boundaries
+      f1 <- shp[t1[[i]], ]|>
+        sf::st_intersection(geometry[i, ])
+      # calculate total area
+      t2 <- sum(sf::st_area(f1))
+      geom$floodplainPercent[i] <- (t2 / geom$totalArea[i])*100
+    }
+  }
+  output <- geom %>%
+    dplyr::select("GEOID","floodplainPercent")
+  
+  return(output)
+}
+
+
+
+
+#' Generate noise measure
+#'
+#' @param filePath : location of noise raster data
+#' @param geometryLayers : list of spatial object representing the processing levels
+#' @return : a list of results at the three processing levels. -- think about if this is needed out not
+#' 
+getFlood <- function(filePath,  geometryLayers){
+  # select geometry layers of interest 
+  geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
+  # read in data 
+  v1 <- sf::st_read(filePath)
+  # established the export 
+  exportPathMain <- "data/products/climateVulnerability"
+  # create export dir
+  exportDir <- paste0(exportPathMain,"/flood")
+  if(!dir.exists(exportDir)){
+    dir.create(exportDir)
+  }
+  # process the datasets 
+  results <- purrr::map2(.x = geometryFiles,
+                         .y = names(geometryFiles),
+                         .f = processFlood,
+                         data = v1)
+  
+  for(i in seq_along(results)){
+    data <- results[[i]]
+    name <- names(results)[i]
+    write.csv(x = data, file = paste0(exportDir,"/flood_", name , ".csv"))
+  }
+  
+  #output the object
+  return(results)
+}
+# 
+# data <- allData
+# geometry <- geometryFiles[[1]]
+# name <- names(geometryFiles)[[1]]
+
+processHazardousWaste <- function(geometry, name, data){
+  # select the data set of interest 
+  vals <- data[[grep(pattern = name, x = names(data))]] |> as.data.frame()
+  
+  # structure then generate and select measures of concern
+  output <- vals |> 
+    select("GEOID", "proxHazWaste")
+  #export 
+  return(output)
+}
+
+
+#' Generate hazardousWaste measure
+#'
+#' @param geometryLayers : list of spatial object representing the processing levels
+#' 
+getHazardousWaste <- function(geometryLayers){
+  # select geometry layers of interest 
+  geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
+  # read in data 
+  data <- list.files("data/processed/ejscreen",pattern = ".csv",full.names = TRUE)
+  # organize for the function
+  allData <- list(
+    county = read_csv(data[grepl(pattern = "county", x = data)]),
+    censusTract = read_csv(data[grepl(pattern = "censusTract", x = data)]),
+    censusBlockGroup = read_csv(data[grepl(pattern = "censusBlockGroup", x = data)])
+  )
+  
+  
+  # established the export 
+  exportPathMain <- "data/products/environmentalEffects"
+  # create export dir
+  exportDir <- paste0(exportPathMain,"/hazardousWaste")
+  if(!dir.exists(exportDir)){
+    dir.create(exportDir)
+  }
+  # process the datasets 
+  results <- purrr::map2(.x = geometryFiles,
+                         .y = names(geometryFiles),
+                         .f = processHazardousWaste,
+                         data = allData)
+  
+  for(i in seq_along(results)){
+    data <- results[[i]]
+    name <- names(results)[i]
+    write.csv(x = data, file = paste0(exportDir,"/hazardousWaste_", name , ".csv"))
+  }
+}
+# 
+# data <- allData
+# geometry <- geometryFiles[[3]]
+# name <- names(geometryFiles)[[3]]
+
+processHeart <- function(geometry, name, data){
+  
+  # Using the county level prevalance data for all grographies 
+  d1 <- data$county |>
+    dplyr::filter(Measure == "Coronary heart disease among adults",
+                  Data_Value_Type == "Age-adjusted prevalence" )|>
+    dplyr::mutate(GEOID = paste0("0",LocationID))|>
+    dplyr::select(
+      GEOID,
+      adj_rate_Prevalence = Data_Value
+    )
+  
+  
+  # process based on geography 
+  if(name == "county"){
+    
+    # mortality data
+    d2 <- data$mortality |>
+      dplyr::filter(geog == "County")|>
+      dplyr::mutate(
+        GEOID = paste0("0", geoid),
+        adj_rate = as.numeric(adj_rate)
+      )|>
+      dplyr::select(
+        GEOID,
+        "adj_rate_mortality" = adj_rate
+      )
+    
+    # join datasets and normalize the distributions 
+    output <- d1 |>
+      dplyr::left_join(d2, by = "GEOID")|>
+      dplyr::mutate(
+        heartPrevalence_pcntl = cume_dist(adj_rate_Prevalence)*100,
+        heartMortality_pcntl = cume_dist(adj_rate_mortality )*100
+      ) |>
+      dplyr::select("GEOID","adj_rate_Prevalence","adj_rate_mortality","heartPrevalence_pcntl", "heartMortality_pcntl" )
+  }
+  # condition for census tract and census block group 
+  if(name != "county"){
+    # process the datasets 
+    
+    # mortality 
+    d2 <- data$mortality |>
+      dplyr::filter(geog == "Census tract")|>
+      dplyr::mutate(
+        GEOID = paste0("0", geoid)
+      )|>
+      dplyr::select(
+        GEOID,
+        "adj_rate_mortality" = adj_rate
+      )
+    # set county FIPS for join 
+    d2$geoid2 <- stringr::str_sub(d2$GEOID, start = 1, end = 5)
+    
+    # join datasets 
+    ## need to add a county GEOID to make the 
+    output <- d2 |>
+      dplyr::left_join(d1, by = c("geoid2" = "GEOID"))|>
+      dplyr::mutate(
+        heartPrevalence_pcntl = cume_dist(adj_rate_Prevalence)*100,
+        heartMortality_pcntl = cume_dist(adj_rate_mortality )*100
+      )|>
+      dplyr::select("GEOID","adj_rate_Prevalence","adj_rate_mortality","heartPrevalence_pcntl", "heartMortality_pcntl" )
+    
+    
+    # assign output based on geography name 
+    if(name == "censusBlockGroup"){
+      geometry$geoid2 <- str_sub(string = geometry$GEOID, start = 1, end = 11)
+      # join to output and reformat
+      output <- geometry |>
+        sf::st_drop_geometry()|>
+        dplyr::left_join(y =  output, by = c("geoid2"= "GEOID"))|>
+        dplyr::select("GEOID","adj_rate_Prevalence","adj_rate_mortality","heartPrevalence_pcntl", "heartMortality_pcntl" )
+    }
+  }
+  
+  # output
+  output <- output |>
+    dplyr::rowwise()|>
+    dplyr::mutate(combinedHeart = mean(c(heartPrevalence_pcntl,heartMortality_pcntl)))|>
+    dplyr::select("GEOID", "combinedHeart")
+  return(output)
+}
+
+
+
+
+#' Generate heart measure
+#'
+#' @param filePath : location of heart raster data
+#' @param geometryLayers : list of spatial object representing the processing levels
+#' @return : a list of results at the three processing levels. -- think about if this is needed out not
+#' 
+getHeart <- function(geometryLayers){
+  # select geometry layers of interest 
+  geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
+  # read in data 
+  ## CDC data 
+  cdcTracts <- read.csv("data/raw/CDC_places/PLACES_Tracts_24_CO.csv")
+  cdcCounty <- read.csv("data/raw/CDC_places/PLACES_County_24_CO.csv")
+  
+  ## state data 
+  mortality <- read.csv("data/raw/mortalityData/co_majorcardiovasculardz_death_nosupp_1822.csv")
+  
+  # gather dataset for the function  
+  allData <- list(
+    tract = cdcTracts,
+    county = cdcCounty,
+    mortality = mortality
+  )
+  # established the export 
+  exportPathMain <- "data/products/sensitivePopulation"
+  # create export dir
+  exportDir <- paste0(exportPathMain,"/heart")
+  if(!dir.exists(exportDir)){
+    dir.create(exportDir)
+  }
+  # process the datasets 
+  results <- purrr::map2(.x = geometryFiles,
+                         .y = names(geometryFiles),
+                         .f = processHeart,
+                         data = allData)
+  
+  for(i in seq_along(results)){
+    data <- results[[i]]
+    name <- names(results)[i]
+    write.csv(x = data, file = paste0(exportDir,"/heart_", name , ".csv"))
+  }
+}
+
+# structure  --------------------------------------------------------------
+# because there are two files were using the folder path 
+# filePath <- "data/raw/heatDays"
+# data <- terra::rast(filePath)
+# geometry <- geometryFiles[[1]]
+processHeat <- function(geometry, name, data){
+  
+  # print statement to define process 
+  print(paste0("Processing heat days data at the ", name, " geographic scale"))
+  if(name == "county"){
+    output <- data |> 
+      dplyr::filter(is.na(CensusTract))|>
+      dplyr::mutate(GEOID = paste0("0",CountyFIPS))|>
+      dplyr::select(GEOID, Value) |>
+      dplyr::group_by(GEOID)|>
+      dplyr::summarise(aveHeatDays = mean(Value))|>
+      dplyr::select(GEOID, "heatDays" = aveHeatDays)
+  }else{
+    censustrack <- data |> 
+      dplyr::filter(!is.na(CensusTract))|>
+      dplyr::mutate(GEOID = paste0("0",CensusTract))|>
+      dplyr::select(GEOID, Value)|>
+      dplyr::group_by(GEOID)|>
+      dplyr::summarise(aveHeatDays = mean(Value))
+  }
+  
+  
+  if(name == "censusTract"){
+    output  <- censustrack |>
+      dplyr::select(GEOID, "heatDays" = aveHeatDays)
+  }
+  # generate census block group measures 
+  if(name == "censusBlockGroup"){
+    # shorten the cbg geoid and join to the data at census level. 
+    output <- st_drop_geometry(geometry) |>
+      dplyr::mutate(GEOID2 = str_sub(GEOID, start = 1, end = 11)) |>
+      dplyr::left_join(censustrack,  by = c("GEOID2" = "GEOID")) |>
+      dplyr::select(GEOID, "heatDays" = aveHeatDays)
+  }
+
+  return(output)
+}
+
+
+
+
+#' Generate heat measure
+#'
+#' @param filePath : location of heat raster data
+#' @param geometryLayers : list of spatial object representing the processing levels
+#' @return : a list of results at the three processing levels. -- think about if this is needed out not
+#' 
+getHeat <- function(folderPath, geometryLayers){
+  # select geometry layers of interest 
+  geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
+  # read in data 
+  files <- list.files(
+    path = folderPath, 
+    pattern = ".csv",
+    full.names = TRUE
+  )
+  d1 <- purrr::map(.x = files, .f = read.csv)|>
+    dplyr::bind_rows()
+  
+  # established the export 
+  exportPathMain <- "data/products/climateVulnerability"
+  # create export dir
+  exportDir <- paste0(exportPathMain,"/heat")
+  if(!dir.exists(exportDir)){
+    dir.create(exportDir)
+  }
+  # process the datasets 
+  results <- purrr::map2(.x = geometryFiles,
+                        .y = names(geometryFiles),
+                        .f = processHeat,
+                        data = d1)
+  
+  for(i in seq_along(results)){
+    data <- results[[i]]
+    name <- names(results)[i]
+    write.csv(x = data, file = paste0(exportDir,"/heat_", name , ".csv"))
+  }
+}
+# 
+# data <- allData
+# geometry <- geometryFiles[[1]]
+# name <- names(geometryFiles)[[1]]
+
+processHighSchool <- function(geometry, name, data){
+  # select the data set of interest 
+  vals <- data[[grep(pattern = name, x = names(data))]] |> as.data.frame()
+  
+  # structure then generate and select measures of concern
+  output <- structureACS(vals) |>
+    dplyr::group_by(GEOID)|>
+    dplyr::mutate(
+      percent_lths = ifelse(
+        B15002_001 == 0,
+        NA,
+        sum(
+          B15002_003,
+          B15002_004,
+          B15002_005,
+          B15002_006,
+          B15002_007,
+          B15002_008,
+          B15002_009,
+          B15002_010,
+          B15002_020,
+          B15002_021,
+          B15002_022,
+          B15002_023,
+          B15002_024,
+          B15002_025,
+          B15002_026,
+          B15002_027
+        ) / B15002_001
+      ))|>
+    select("GEOID", "percent_lths")
+  #export 
+  return(output)
+}
+
+
+#' Generate highSchool measure
+#'
+#' @param geometryLayers : list of spatial object representing the processing levels
+#' 
+getHighSchool <- function(geometryLayers){
+  # select geometry layers of interest 
+  geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
+  # read in data 
+  data <- list.files("data/processed/acs",pattern = ".csv",full.names = TRUE)
+  # organize for the function
+  allData <- list(
+    county = read_csv(data[grepl(pattern = "county", x = data)]),
+    censusTract = read_csv(data[grepl(pattern = "censusTract", x = data)]),
+    censusBlockGroup = read_csv(data[grepl(pattern = "censusBlockGroup", x = data)])
+  )
+  
+  
+  # established the export 
+  exportPathMain <- "data/products/demographics"
+  # create export dir
+  exportDir <- paste0(exportPathMain,"/highSchool")
+  if(!dir.exists(exportDir)){
+    dir.create(exportDir)
+  }
+  # process the datasets 
+  results <- purrr::map2(.x = geometryFiles,
+                         .y = names(geometryFiles),
+                         .f = processHighSchool,
+                         data = allData)
+  
+  for(i in seq_along(results)){
+    data <- results[[i]]
+    name <- names(results)[i]
+    write.csv(x = data, file = paste0(exportDir,"/highSchool_", name , ".csv"))
+  }
+}
+# 
+# data <- allData
+# geometry <- geometryFiles[[1]]
+# name <- names(geometryFiles)[[1]]
+
+processHousingBurden <- function(geometry, name, data){
+  # select the data set of interest 
+  vals <- data[[grep(pattern = name, x = names(data))]] |> as.data.frame()
+  
+  # structure then generate and select measures of concern
+  output <- structureACS(vals) |>
+    dplyr::group_by(GEOID)|>
+    dplyr::mutate(
+      HHUnits = B25070_001+B25091_001, # renter total + owner total
+      HH_Burdened = B25070_007+B25070_008+B25070_009+B25070_010+
+        B25091_008+B25091_009+B25091_010+B25091_011+
+        B25091_019+B25091_020+B25091_021+B25091_022, # >30% renters, mortgaged, nonmortgaged
+      HH_Burdened_Pct = HH_Burdened/HHUnits)|>
+    select("GEOID","HH_Burdened_Pct")
+  #export 
+  return(output)
+}
+
+
+#' Generate housingBurden measure
+#'
+#' @param geometryLayers : list of spatial object representing the processing levels
+#' 
+getHousingBurden <- function(geometryLayers){
+  # select geometry layers of interest 
+  geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
+  # read in data 
+  data <- list.files("data/processed/acs",pattern = ".csv",full.names = TRUE)
+  # organize for the function
+  allData <- list(
+    county = read_csv(data[grepl(pattern = "county", x = data)]),
+    censusTract = read_csv(data[grepl(pattern = "censusTract", x = data)]),
+    censusBlockGroup = read_csv(data[grepl(pattern = "censusBlockGroup", x = data)])
+  )
+  
+  
+  # established the export 
+  exportPathMain <- "data/products/demographics"
+  # create export dir
+  exportDir <- paste0(exportPathMain,"/housingBurden")
+  if(!dir.exists(exportDir)){
+    dir.create(exportDir)
+  }
+  # process the datasets 
+  results <- purrr::map2(.x = geometryFiles,
+                         .y = names(geometryFiles),
+                         .f = processHousingBurden,
+                         data = allData)
+  
+  for(i in seq_along(results)){
+    data <- results[[i]]
+    name <- names(results)[i]
+    write.csv(x = data, file = paste0(exportDir,"/housingBurden_", name , ".csv"))
+  }
+}
+# 
+# data <- allData
+# geometry <- geometryFiles[[1]]
+# name <- names(geometryFiles)[[1]]
+
+processLead <- function(geometry, name, data){
+  # select the data set of interest 
+  vals <- data[[grep(pattern = name, x = names(data))]] |> as.data.frame()
+  
+  # structure then generate and select measures of concern
+  output <-  structureACS(vals)|>
+    dplyr::group_by(GEOID)|>
+    dplyr::mutate(
+      lead = sum(B25034_009,B25034_010,B25034_011)/B25034_001)|>
+    select("GEOID", "lead")
+  #export 
+  return(output)
+}
+
+
+#' Generate Lead measure
+#'
+#' @param geometryLayers : list of spatial object representing the processing levels
+#' 
+getLead <- function(geometryLayers){
+  # select geometry layers of interest 
+  geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
+  # read in data 
+  data <- list.files("data/processed/acs",pattern = ".csv",full.names = TRUE)
+  # organize for the function
+  allData <- list(
+    county = read_csv(data[grepl(pattern = "county", x = data)]),
+    censusTract = read_csv(data[grepl(pattern = "censusTract", x = data)]),
+    censusBlockGroup = read_csv(data[grepl(pattern = "censusBlockGroup", x = data)])
+  )
+  
+  
+  # established the export 
+  exportPathMain <- "data/products/environmentalExposures"
+  # create export dir
+  exportDir <- paste0(exportPathMain,"/lead")
+  if(!dir.exists(exportDir)){
+    dir.create(exportDir)
+  }
+  # process the datasets 
+  results <- purrr::map2(.x = geometryFiles,
+                         .y = names(geometryFiles),
+                         .f = processLead,
+                         data = allData)
+  
+  for(i in seq_along(results)){
+    data <- results[[i]]
+    name <- names(results)[i]
+    write.csv(x = data, file = paste0(exportDir,"/lead_", name , ".csv"))
+  }
+}
+### 
+# two function for each indicators
+# data processing function 
+# function to call within the main script 
+###
+
+# 
+# filePath <- "data/raw/lifeExpectancy/U.S._Life_Expectancy_at_Birth_by_State_and_Census_Tract_-_2010-2015_20240703.csv"
+# data <- d1
+# geometryLayers <- geometries
+# geometry <- geometryFiles[1]
+
+processlifeExectancy <- function(data){
+  # this is a terrible data format... doing some adjustments
+  coData <- data |>
+    dplyr::filter(State == "Colorado") |>
+    dplyr::filter(County != "(blank)") |> 
+    dplyr::mutate(county = stringr::str_replace_all(string = County ,
+                                                    pattern = " County, CO",
+                                                    replacement = "")) |>
+    #               # "Census Tract Number" = sprintf("%.2f", as.numeric(`Census.Tract.Number`)))|>
+    # "Census Tract Number" = as.character(`Census.Tract.Number`))|>
+    dplyr::select(
+      "State",
+      "county",
+      "Census.Tract.Number",
+      "Life.Expectancy", "Life.Expectancy.Standard.Error" 
+    ) |>
+    dplyr::mutate(
+      ctn = as.character(Census.Tract.Number),
+      exactCTN = sprintf("%.2f", as.numeric(`Census.Tract.Number`))
+    )
+  
+  # construct the FIPS based GEOID 
+  county <- sf::st_read("data/processed/geographies/county.gpkg")
+  censusBlockGroup <- sf::st_read("data/processed/geographies/censusBlockGroup.gpkg")
+  censusTract <- sf::st_read("data/raw/censusTract.gpkg")|>
+    st_drop_geometry()|>
+    dplyr::select(
+      "STATEFP",
+      "COUNTYFP",
+      "TRACTCE",  
+      "GEOID",
+      "NAME",
+      "NAMELSAD",
+      "INTPTLAT", 
+      "INTPTLON"
+    )|>
+    sf::st_as_sf(coords = c("INTPTLON", "INTPTLAT"), crs = 4269)
+  # 2010 data
+  censusTract2010 <- sf::st_read("data/raw/censusTract2010.gpkg")|>
+    dplyr::select("STATEFP10",
+                  "COUNTYFP10",
+                  "TRACTCE10",
+                  "GEOID10",
+                  "NAME10",
+                  "NAMELSAD10")
+  # intersect the 2020 centroids with the 2010 areas to get the 2010 GEOID 
+  d1 <- sf::st_intersects(x = censusTract, y = censusTract2010,sparse = TRUE) |> unlist()
+  # add the column to the 2020 dataset 
+  censusTract$GEOID2010 <- censusTract2010$GEOID10[d1]
+  # drop spatial elements 
+  censusTract2010 <- st_drop_geometry(censusTract2010)
+  censusTract <- st_drop_geometry(censusTract)
+  
+  
+  # the census tract id here is 
+  lifeData <- dplyr::left_join(x = coData, 
+                               y = county,
+                               by = c("county"="NAME"))|>
+    dplyr::mutate(countyGEOID = str_sub(string = GEOID, start = 3,end = 5))
+  
+  lifeData$ctGEOID <- NA
+  # itorate through the options and assing a censustract ID 
+  for(i in seq_along(lifeData$Census.Tract.Number)){
+    print(i)
+    t1 <- lifeData[i, ]
+    cID <- t1$countyGEOID
+    # exact value 
+    tID <- t1$exactCTN
+    # shorterned value 
+    sID <- t1$ctn
+    
+    # filter census tract data to count 
+    ct1 <- dplyr::filter(.data = censusTract2010, COUNTYFP10 == cID)
+    # test for exact match on
+    ct2 <- dplyr::filter(ct1, NAME10 == tID)
+    if(nrow(ct2)==1){
+      lifeData[i, "ctGEOID"] <- ct2$GEOID10 
+    }else{
+      ct3 <- dplyr::filter(ct1, NAME10 == sID)
+      if(nrow(ct3)==1){
+        lifeData[i, "ctGEOID"] <- ct3$GEOID10 
+      }
+    }
+  }
+  
+  # convert to 2020 censustract data 
+  ## attempt a join 
+  ct2022 <- dplyr::left_join(censusTract, lifeData, by = c("GEOID2010"= "ctGEOID"), keep = TRUE)
+  
+  finalVals <- ct2022 |>
+    dplyr::select(
+      "ctGEOID" = GEOID.x, 
+      "Life.Expectancy")|>
+    dplyr::mutate(
+      cGEOID = stringr::str_sub(ctGEOID, start = 1, end = 5)) 
+
+  # county
+  countyVals <- finalVals |>
+    dplyr::group_by(cGEOID)|>
+    dplyr::summarise(lifeExpectancy = mean(Life.Expectancy, na.rm = TRUE))|>
+    dplyr::select("GEOID" = cGEOID, lifeExpectancy)
+  # census tract 
+  ctVals <- finalVals |>
+    dplyr::select("GEOID" = ctGEOID, 
+                  lifeExpectancy = Life.Expectancy)
+  # census blocks 
+  cbgVals <- censusBlockGroup |>
+    st_drop_geometry()|>
+    dplyr::mutate(GEOID = stringr::str_sub(GEOID, start = 1, end = 11))|>
+    dplyr::left_join(finalVals, by = c("GEOID" = "ctGEOID"))|>
+    dplyr::select("GEOID",
+                  lifeExpectancy = Life.Expectancy)
+  
+  
+  return(
+    list(
+      "county" = countyVals,
+      "censusTract" = ctVals,
+      "censusBlockGroup" = cbgVals
+    )
+  )
+}
+
+
+
+### set parameters for testings 
+filePath <- "data/raw/lifeExpectancy/U.S._Life_Expectancy_at_Birth_by_State_and_Census_Tract_-_2010-2015_20240703.csv"
+# geometryLayers <- geometries
+
+getLifeExpectency <- function(filePath, geometryLayers){
+  # select geometry layers of interest 
+  geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
+  # read in data 
+  d1 <- read.csv(filePath)
+  # established the export 
+  exportPathMain <- "data/products/sensitivePopulation"
+  # create export dir
+  exportDir <- paste0(exportPathMain,"/lifeExectancy")
+  if(!dir.exists(exportDir)){
+    dir.create(exportDir)
+  }
+  
+  # render the results at the given spatial scales 
+  results <- processlifeExectancy(data = d1)
+  # export those results
+  for(i in seq_along(results)){
+    data <- results[[i]]
+    name <- names(results)[i]
+    write.csv(x = data, file = paste0(exportDir,"/lifeExectancy_", name , ".csv"))
+  }
+  
+  #output the object
+  return(results)
+}
+
+# 
+# data <- allData
+# geometry <- geometryFiles[[1]]
+# name <- names(geometryFiles)[[1]]
+
+processLinguisticIsolation <- function(geometry, name, data){
+  # select the data set of interest 
+  vals <- data[[grep(pattern = name, x = names(data))]] |> as.data.frame()
+  
+  # structure then generate and select measures of concern
+  output <- structureACS(vals) |>
+    dplyr::group_by(GEOID)|>
+    dplyr::mutate(
+      percent_lingiso = ifelse(
+        C16002_001 == 0,
+        NA,
+        sum(C16002_004, C16002_007, C16002_010, C16002_013) / C16002_001
+      ))|>
+    select("GEOID", "percent_lingiso")
+  #export 
+  return(output)
+}
+
+
+#' Generate linguisticIsolation measure
+#'
+#' @param geometryLayers : list of spatial object representing the processing levels
+#' 
+getLinguisticIsolation <- function(geometryLayers){
+  # select geometry layers of interest 
+  geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
+  # read in data 
+  data <- list.files("data/processed/acs",pattern = ".csv",full.names = TRUE)
+  # organize for the function
+  allData <- list(
+    county = read_csv(data[grepl(pattern = "county", x = data)]),
+    censusTract = read_csv(data[grepl(pattern = "censusTract", x = data)]),
+    censusBlockGroup = read_csv(data[grepl(pattern = "censusBlockGroup", x = data)])
+  )
+  
+  
+  # established the export 
+  exportPathMain <- "data/products/demographics"
+  # create export dir
+  exportDir <- paste0(exportPathMain,"/linguisticIsolation")
+  if(!dir.exists(exportDir)){
+    dir.create(exportDir)
+  }
+  # process the datasets 
+  results <- purrr::map2(.x = geometryFiles,
+                         .y = names(geometryFiles),
+                         .f = processLinguisticIsolation,
+                         data = allData)
+  
+  for(i in seq_along(results)){
+    data <- results[[i]]
+    name <- names(results)[i]
+    write.csv(x = data, file = paste0(exportDir,"/linguisticIsolation_", name , ".csv"))
+  }
+}
+# 
+# filePath <- "data/raw/lowBirthWeight/co_lowbirthweight_births_nosupp_1822.xlsx"
+# data <- readxl::read_xlsx(filePath)
+# geometry <- geometryFiles[[1]]
+processLowBirthWeight <- function(geometry, name, data){
+ 
+  
+  # print statement to define process 
+  print(paste0("Processing low birth rate data at the ", name, " geographic scale"))
+  if(name == "county"){
+    output <- data |> 
+      dplyr::filter(geog == "County")|>
+      dplyr::select("GEOID" = geoid, 
+                    "lowBirthRate" = pct)
+  }else{
+    censustrack <- data |> 
+      dplyr::filter(geog == "Census tract")|>
+      dplyr::select("GEOID" = geoid, pct)
+  }
+  
+  if(name == "censusTract"){
+    output  <- censustrack |>
+      dplyr::select(GEOID, "lowBirthRate" = pct)
+  }
+  
+  if(name == "censusBlockGroup"){
+    # shorten the cbg geoid and join to the data at census level. 
+    output <- st_drop_geometry(geometry) |>
+      dplyr::mutate(GEOID2 = str_sub(GEOID, start = 1, end = 11)) |>
+      dplyr::left_join(censustrack,  by = c("GEOID2" = "GEOID")) |>
+      dplyr::select(GEOID, "lowBirthRate" = pct)
+  }
+  
+  return(output)
+}
+
+
+
+
+#' Generate LowBirthWeight measure
+#'
+#' @param filePath : location of LowBirthWeight raster data
+#' @param geometryLayers : list of spatial object representing the processing levels
+#' @return : a list of results at the three processing levels. -- think about if this is needed out not
+#' 
+getLowBirthWeight <- function(filePath,  geometryLayers){
+  # select geometry layers of interest 
+  geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
+  # read in data 
+  d1 <- readxl::read_xlsx(filePath)
+  # established the export 
+  exportPathMain <- "data/products/sensitivePopulation"
+  # create export dir
+  exportDir <- paste0(exportPathMain,"/lowBirthWeight")
+  if(!dir.exists(exportDir)){
+    dir.create(exportDir)
+  }
+  # process the datasets 
+  results <- purrr::map2(.x = geometryFiles,
+                        .y = names(geometryFiles),
+                        .f = processLowBirthWeight,
+                        data = d1)
+  
+  for(i in seq_along(results)){
+    data <- results[[i]]
+    name <- names(results)[i]
+    write.csv(x = data, file = paste0(exportDir,"/lowBirthWeight_", name , ".csv"))
+  }
+}
+# 
+# data <- allData
+# geometry <- geometryFiles[[1]]
+# name <- names(geometryFiles)[[1]]
+
+processLowIncome <- function(geometry, name, data){
+  # select the data set of interest 
+  vals <- data[[grep(pattern = name, x = names(data))]] |> as.data.frame()
+  
+  # structure then generate and select measures of concern
+  output <- structureACS(vals) |>
+    dplyr::group_by(GEOID)|>
+    dplyr::mutate(
+      percent_lowincome = ifelse(C17002_001 == 0, NA, (C17002_001 - C17002_008) / C17002_001))|>
+    select("GEOID", "percent_lowincome")
+  #export 
+  return(output)
+}
+
+
+#' Generate lowIncome measure
+#'
+#' @param geometryLayers : list of spatial object representing the processing levels
+#' 
+getLowIncome <- function(geometryLayers){
+  # select geometry layers of interest 
+  geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
+  # read in data 
+  data <- list.files("data/processed/acs",pattern = ".csv",full.names = TRUE)
+  # organize for the function
+  allData <- list(
+    county = read_csv(data[grepl(pattern = "county", x = data)]),
+    censusTract = read_csv(data[grepl(pattern = "censusTract", x = data)]),
+    censusBlockGroup = read_csv(data[grepl(pattern = "censusBlockGroup", x = data)])
+  )
+  
+  
+  # established the export 
+  exportPathMain <- "data/products/demographics"
+  # create export dir
+  exportDir <- paste0(exportPathMain,"/lowIncome")
+  if(!dir.exists(exportDir)){
+    dir.create(exportDir)
+  }
+  # process the datasets 
+  results <- purrr::map2(.x = geometryFiles,
+                         .y = names(geometryFiles),
+                         .f = processLowIncome,
+                         data = allData)
+  
+  for(i in seq_along(results)){
+    data <- results[[i]]
+    name <- names(results)[i]
+    write.csv(x = data, file = paste0(exportDir,"/lowIncome_", name , ".csv"))
+  }
+}
+# 
+# filePath <- "data/raw/cancer/CONUS_L50dBA_sumDay_exi.tif"
+# data <- allData
+# geometry <- geometryFiles[[1]]
+# name <- names(geometryFiles)[[1]]
+
+processMentalHealth <- function(geometry, name, data){
+  
+  # Using the county level prevalance data for all grographies 
+  d1 <- data$county |>
+    dplyr::filter(Measure =="Frequent mental distress among adults",
+                  Data_Value_Type == "Age-adjusted prevalence" )|>
+    dplyr::mutate(GEOID = paste0("0",LocationID))|>
+    dplyr::select(
+      GEOID,
+      adj_rate_Prevalence = Data_Value
+    )
+  
+  
+  # process based on geography 
+  if(name == "county"){
+    
+    # join datasets and normalize the distributions 
+    output <- d1 |>
+      dplyr::select("GEOID","adj_rate_Prevalence")
+  }
+  # condition for census tract and census block group 
+  if(name != "county"){
+    # process the datasets 
+    output <- data$tract |>
+      dplyr::filter(Measure =="Frequent mental distress among adults",
+                    Data_Value_Type == "Crude prevalence" )|>
+      dplyr::mutate(GEOID = paste0("0",LocationID))|>
+      dplyr::select(
+        GEOID,
+        adj_rate_Prevalence = Data_Value
+      )
+    
+    # assign output based on geography name 
+    if(name == "censusBlockGroup"){
+      geometry$geoid2 <- str_sub(string = geometry$GEOID, start = 1, end = 11)
+      # join to output and reformat
+      output <- geometry |>
+        sf::st_drop_geometry()|>
+        dplyr::left_join(y =  output, by = c("geoid2"= "GEOID"))|>
+        dplyr::select("GEOID","adj_rate_Prevalence")
+    }
+  }
+  
+  # output
+  return(output)
+}
+
+
+
+
+#' Generate cancer measure
+#'
+#' @param filePath : location of cancer raster data
+#' @param geometryLayers : list of spatial object representing the processing levels
+#' @return : a list of results at the three processing levels. -- think about if this is needed out not
+#' 
+getMentalHealth <- function(geometryLayers){
+  # select geometry layers of interest 
+  geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
+  # read in data 
+  ## CDC data 
+  cdcTracts <- read.csv("data/raw/CDC_places/PLACES_Tracts_24_CO.csv")
+  cdcCounty <- read.csv("data/raw/CDC_places/PLACES_County_24_CO.csv")
+  
+  # gather dataset for the function  
+  allData <- list(
+    tract = cdcTracts,
+    county = cdcCounty
+  )
+  # established the export 
+  exportPathMain <- "data/products/sensitivePopulation"
+  # create export dir
+  exportDir <- paste0(exportPathMain,"/mentalHealth")
+  if(!dir.exists(exportDir)){
+    dir.create(exportDir)
+  }
+  # process the datasets 
+  results <- purrr::map2(.x = geometryFiles,
+                         .y = names(geometryFiles),
+                         .f = processMentalHealth,
+                         data = allData)
+  
+  for(i in seq_along(results)){
+    data <- results[[i]]
+    name <- names(results)[i]
+    write.csv(x = data, file = paste0(exportDir,"/mentalHealth_", name , ".csv"))
+  }
+}
+# 
+# filePath <- "data/raw/Mining/CONUS_L50dBA_sumDay_exi.tif"
+# data <- terra::rast(filePath)  
+# geometry <- geometryFiles[[1]]
+processMining <- function(data){
+  # read in reference layers 
+  blocks <- sf::st_read("data/processed/geographies/blocksWithAdjustedPop.gpkg")
+  # block group relations 
+  blockGroupNeighbors <- readRDS("data/processed/geographies/bgNeighbors.RDS")
+  print("reading in reference layers")
+  # define the index for the map function
+  index <- 1:nrow(data)
+  # call the calculate score function 
+  exportFile <-  "data/products/environmentalEffects/mining/detailsOnDistanceScoring.csv"
+  ## conditional to avoid timely geoprocessing step 
+  if(!file.exists(exportFile)){
+    for(i in index){
+      val <- calculateDistanceScore(index = i,
+                                    sites = data, 
+                                    blockGroupNeighbors= blockGroupNeighbors,
+                                    blocks = blocks )
+      if(i == 1){
+        scores <- val
+      }else{
+        scores <- scores |> bind_rows(val)
+      }
+    }
+
+  # export here because this is a big geoprocessing step 
+    write.csv(scores, file = "data/products/environmentalEffects/mining/detailsOnDistanceScoring.csv")
+    }else{
+     scores <- readr::read_csv(exportFile)
+  }
+
+  
+  formatedScores <- scores |> 
+    # summarize to agggregate measures to the blockGEOID 
+      dplyr::group_by(GEOID20)|>
+      dplyr::summarise(aggregatedNoPopScore = sum(nonPopScore),
+                       aggregatedPercentPopScore = sum(percentPopScore),
+                       numberOfSource = n())
+  write.csv(scores, file = "data/products/environmentalEffects/mining/aggratedScoreValues.csv")
+  
+  
+  # group these by census block group, census tract, county 
+  allScores <- formatedScores |> 
+    dplyr::mutate(
+      cGEOID = stringr::str_sub(GEOID20, start = 1, end = 5),
+      ctGEOID = stringr::str_sub(GEOID20, start = 1, end = 11),
+      bgGEOID = stringr::str_sub(GEOID20, start = 1, end = 12)
+    )
+  # write.csv(scores, file = "data/products/environmentalEffects/mining/mining_census.csv")
+  # 
+  # generate aggregates score measures 
+  ## county
+  countyScores <- allScores |> 
+    dplyr::group_by(cGEOID)|>
+    dplyr::summarise(noPopScore = sum(aggregatedNoPopScore),
+                     PercentPopScore = sum(aggregatedPercentPopScore),
+                     numberOfSource = n())|>
+    dplyr::select(
+      "GEOID" = cGEOID,
+      noPopScore,
+      PercentPopScore,
+      numberOfSource
+    )
+  ## censustract 
+  censusTractScores <- allScores |> 
+    dplyr::group_by(ctGEOID)|>
+    dplyr::summarise(noPopScore = sum(aggregatedNoPopScore),
+                     PercentPopScore = sum(aggregatedPercentPopScore),
+                     numberOfSource = n())|>
+    dplyr::select(
+      "GEOID" = ctGEOID,
+      noPopScore,
+      PercentPopScore,
+      numberOfSource
+    )
+  ## census block group 
+  censusBlockGroupScores <- allScores |> 
+    dplyr::group_by(bgGEOID)|>
+    dplyr::summarise(noPopScore = sum(aggregatedNoPopScore),
+                     PercentPopScore = sum(aggregatedPercentPopScore),
+                     numberOfSource = n())|>
+    dplyr::select(
+      "GEOID" = bgGEOID,
+      noPopScore,
+      PercentPopScore,
+      numberOfSource
+    )
+  return(
+    list(
+      "county" = countyScores,
+      "censusTract" = censusTractScores,
+      "censusBlockGroup" = censusBlockGroupScores
+    )
+  )
+}
+
+
+
+
+#' Generate Mining measure
+#'
+#' @param geometryLayers : list of spatial object representing the processing levels
+#' @return : a list of results at the three processing levels. -- think about if this is needed out not
+#' 
+getMining <- function(geometryLayers){
+  # select geometry layers of interest 
+  geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
+  # read in data 
+  hardrock <- sf::st_read("data/raw/mining/Active_Hardrock_Permit/Active_Hardrock_Permit.shp")|>
+    dplyr::select(PermitID, SiteName, StatusDesc, PermitType, Commodity, PermitAcre, Longitude, Latitude, MineType)|>
+    dplyr::mutate(DataSource = "Hardrock")
+  constr <- sf::st_read("data/raw/mining/Active_Construction_Permit/Active_Construction_Permit.shp")|>
+    dplyr::select(PermitID, SiteName, StatusDesc, PermitType, Commodity, PermitAcre, Longitude, Latitude, MineType)|>
+    dplyr::mutate(DataSource = "Construction")
+  coal <- sf::st_read("data/raw/mining/Active_Coal_Permit/Active_Coal_Permit.shp")|>
+    dplyr::select(PermitID, SiteName, StatusDesc, PermitType, PermitAcre, Longitude, Latitude, MineType)|>
+    dplyr::mutate(Commodity = "Coal",
+           DataSource = "Coal")
+  
+  allMining <- rbind(hardrock, constr, coal)|>
+    dplyr::filter(StatusDesc == "Active") |> 
+    sf::st_transform(crs = crs(geometryFiles[[1]]))
+  
+  # pull census block groups 
+  cbg <- geometryFiles$censusBlockGroup
+  # returns a postition index on the interestion of the cbg per each mining location
+  t1 <- sf::st_intersects(x = allMining,
+                          y = cbg,
+                          sparse = TRUE
+                          )
+  # when I unlist() the t1 object I'm looking a row... not sure why so using a for loop to assign data
+  ## item 84, has a lat value outside of the state so it can not reference cbg 
+  allMining$cbg_geoid <- NA
+  
+  for(i in 1:length(t1)){
+    index <- cbg$GEOID[t1[[i]]]
+    if(identical(index, character(0))){
+      allMining$cbg_geoid[i] <- NA
+    }else{
+      allMining$cbg_geoid[i] <- index
+    }
+  }
+    
+  # remove any na values 
+  allMining_clean <- allMining |> dplyr::filter(!is.na(cbg_geoid))
+  
+  # define the site score value (different for each indicator. )
+  allMining_clean$siteScore <- 1
+  # established the export 
+  exportPathMain <- "data/products/environmentalEffects"
+  
+  # create export dir
+  exportDir <- paste0(exportPathMain,"/mining")
+  if(!dir.exists(exportDir)){
+    dir.create(exportDir)
+  }
+  # process the datasets 
+  results <- processMining(data = allMining_clean)
+  
+  for(i in seq_along(results)){
+    data <- results[[i]]
+    name <- names(results)[i]
+    write.csv(x = data, file = paste0(exportDir,"/mining_", name , ".csv"))
+  }
+}
+# 
+# filePath <- "data/raw/noise/CONUS_L50dBA_sumDay_exi.tif"
+# data <- terra::rast(filePath)
+# geometry <- geometryFiles[[2]]
+processNoise <- function(geometry, data){
+  # convert to terra and project 
+  geomVect <- terra::vect(geometry)|>
+    terra::project(data)
+
+  # extract Values
+  extractedVals <- terra::extract(x = data, y = geomVect,fun = mean, na.rm = TRUE)
+
+  # output
+  output <- geomVect |>
+    as.data.frame()|>
+    dplyr::mutate(
+      noise = extractedVals$CONUS_L50dBA_sumDay_exi
+    )|>
+    dplyr::select(GEOID, noise)
+  return(output)
+}
+
+
+
+
+#' Generate noise measure
+#'
+#' @param filePath : location of noise raster data
+#' @param geometryLayers : list of spatial object representing the processing levels
+#' @return : a list of results at the three processing levels. -- think about if this is needed out not
+#' 
+getNoise <- function(filePath,  geometryLayers){
+  # select geometry layers of interest 
+  geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
+  # read in data 
+  r1 <- terra::rast(filePath)
+  # established the export 
+  exportPathMain <- "data/products/environmentalExposures"
+  # create export dir
+  exportDir <- paste0(exportPathMain,"/noise")
+  if(!dir.exists(exportDir)){
+    dir.create(exportDir)
+  }
+  # process the datasets 
+  results <- purrr::map(.x = geometryFiles,
+                        # .y = names(geometryFiles),
+                        .f = processNoise,
+                        data = r1)
+  
+  for(i in seq_along(results)){
+    data <- results[[i]]
+    name <- names(results)[i]
+    write.csv(x = data, file = paste0(exportDir,"/noise_", name , ".csv"))
+  }
+}
+# 
+# data <- allData
+# geometry <- geometryFiles[[1]]
+# name <- names(geometryFiles)[[1]]
+
+processNPLsites <- function(geometry, name, data){
+  # select the data set of interest 
+  vals <- data[[grep(pattern = name, x = names(data))]] |> as.data.frame()
+  
+  # structure then generate and select measures of concern
+  output <- vals |> 
+    select("GEOID", "proxNPLsites")
+  #export 
+  return(output)
+}
+
+
+#' Generate nplSites measure
+#'
+#' @param geometryLayers : list of spatial object representing the processing levels
+#' 
+getNPLsites <- function(geometryLayers){
+  # select geometry layers of interest 
+  geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
+  # read in data 
+  data <- list.files("data/processed/ejscreen",pattern = ".csv",full.names = TRUE)
+  # organize for the function
+  allData <- list(
+    county = read_csv(data[grepl(pattern = "county", x = data)]),
+    censusTract = read_csv(data[grepl(pattern = "censusTract", x = data)]),
+    censusBlockGroup = read_csv(data[grepl(pattern = "censusBlockGroup", x = data)])
+  )
+  
+  
+  # established the export 
+  exportPathMain <- "data/products/environmentalEffects"
+  # create export dir
+  exportDir <- paste0(exportPathMain,"/nplSites")
+  if(!dir.exists(exportDir)){
+    dir.create(exportDir)
+  }
+  # process the datasets 
+  results <- purrr::map2(.x = geometryFiles,
+                         .y = names(geometryFiles),
+                         .f = processNPLsites,
+                         data = allData)
+  
+  for(i in seq_along(results)){
+    data <- results[[i]]
+    name <- names(results)[i]
+    write.csv(x = data, file = paste0(exportDir,"/nplSites_", name , ".csv"))
+  }
+}
+# 
+# filePath <- "data/raw/Mining/CONUS_L50dBA_sumDay_exi.tif"
+# data <- terra::rast(filePath)  
+# geometry <- geometryFiles[[1]]
+processOilAndGas<- function(data){
+  # read in reference layers 
+  blocks <- sf::st_read("data/processed/geographies/blocksWithAdjustedPop.gpkg")
+  # block group relations 
+  blockGroupNeighbors <- readRDS("data/processed/geographies/bgNeighbors.RDS")
+  # define the index for the map function
+  index <- 1:nrow(data)
+  # call the calculate score function 
+  exportFile <-  "data/products/environmentalEffects/oilAndGas/detailsOnDistanceScoring.csv"
+  ## conditional to avoid timely geoprocessing step 
+  if(!file.exists(exportFile)){
+    for(i in index){
+      val <- calculateDistanceScore(index = i,
+                                    sites = data, 
+                                    blockGroupNeighbors= blockGroupNeighbors,
+                                    blocks = blocks )
+      if(i == 1){
+        scores <- val
+      }else{
+        scores <- scores |> bind_rows(val)
+      }
+    }
+    
+    # export here because this is a big geoprocessing step 
+    write.csv(scores, file = "data/products/environmentalEffects/oilAndGas/detailsOnDistanceScoring.csv")
+  }else{
+    scores <- readr::read_csv(exportFile)
+  }
+  
+  
+  formatedScores <- scores |> 
+    # summarize to agggregate measures to the blockGEOID 
+    dplyr::group_by(GEOID20)|>
+    dplyr::summarise(aggregatedNoPopScore = sum(nonPopScore),
+                     aggregatedPercentPopScore = sum(percentPopScore),
+                     numberOfSource = n())
+  write.csv(scores, file = "data/products/environmentalEffects/oilAndGas/aggratedScoreValues.csv")
+  
+  
+  # group these by census block group, census tract, county 
+  allScores <- formatedScores |> 
+    dplyr::mutate(
+      cGEOID = stringr::str_sub(GEOID20, start = 1, end = 5),
+      ctGEOID = stringr::str_sub(GEOID20, start = 1, end = 11),
+      bgGEOID = stringr::str_sub(GEOID20, start = 1, end = 12)
+    )
+  # write.csv(scores, file = "data/products/environmentalEffects/oilAndGas/oilAndGascensus.csv")
+  # 
+  # generate aggregates score measures 
+  ## county
+  countyScores <- allScores |> 
+    dplyr::group_by(cGEOID)|>
+    dplyr::summarise(noPopScore = sum(aggregatedNoPopScore),
+                     PercentPopScore = sum(aggregatedPercentPopScore),
+                     numberOfSource = n())|>
+    dplyr::select(
+      "GEOID" = cGEOID,
+      noPopScore,
+      PercentPopScore,
+      numberOfSource
+    )
+  ## censustract 
+  censusTractScores <- allScores |> 
+    dplyr::group_by(ctGEOID)|>
+    dplyr::summarise(noPopScore = sum(aggregatedNoPopScore),
+                     PercentPopScore = sum(aggregatedPercentPopScore),
+                     numberOfSource = n())|>
+    dplyr::select(
+      "GEOID" = ctGEOID,
+      noPopScore,
+      PercentPopScore,
+      numberOfSource
+    )
+  ## census block group 
+  censusBlockGroupScores <- allScores |> 
+    dplyr::group_by(bgGEOID)|>
+    dplyr::summarise(noPopScore = sum(aggregatedNoPopScore),
+                     PercentPopScore = sum(aggregatedPercentPopScore),
+                     numberOfSource = n())|>
+    dplyr::select(
+      "GEOID" = bgGEOID,
+      noPopScore,
+      PercentPopScore,
+      numberOfSource
+    )
+  return(
+    list(
+      "county" = countyScores,
+      "censusTract" = censusTractScores,
+      "censusBlockGroup" = censusBlockGroupScores
+    )
+  )
+}
+
+
+
+
+#' Generate OilAndGasmeasure
+#'
+#' @param geometryLayers : list of spatial object representing the processing levels
+#' @return : a list of results at the three processing levels. -- think about if this is needed out not
+#' 
+getOilAndGas<- function(geometryLayers){
+  # select geometry layers of interest 
+  geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
+  
+  
+  # pull census block groups 
+  cbg <- geometryFiles$censusBlockGroup
+  
+  # read in data 
+  # oil and gas locations
+  d1 <- st_read("data/raw/oilAndGas/OIL_AND_GAS_LOCATIONS_SHP/Oil_and_Gas_Locations.shp")|>
+    dplyr::filter(fac_status == "AC")|>
+    dplyr::mutate(class = "oilGasLocs", id = loc_id )|>
+    dplyr::select(class, id)
+  #pits
+  d2 <- st_read("data/raw/oilAndGas/PITS_SHP/Pits.shp")|>
+    dplyr::filter(Facil_Stat == "AC")|>
+    dplyr::mutate(class = "pits", id = Facil_Id )|>
+    dplyr::select(class, id)
+  # tanks
+  d3 <- st_read("data/raw/oilAndGas/TANK_BATTERIES_SHP/Tank_Batteries.shp")|>
+    dplyr::filter(fac_status == "AC") |>
+    dplyr::mutate(class = "tanks", id = fac_id  )|>
+    dplyr::select(class, id)
+  # well spots
+  d4 <- st_read("data/raw/oilAndGas/WELLS_SHP/Wells.shp")|>
+    dplyr::filter(Facil_Stat %in% c("AC","CM","DG","IJ", "PR", "RC","SI","TA","WO"))|>
+    dplyr::mutate(class = "wells", id = Facil_Id )|>
+    dplyr::select(class, id)
+  # spills
+  d5 <- readxl::read_xlsx("data/raw/oilAndGas/Spills/Spills.xlsx")|>
+    dplyr::filter(!is.na(`Date of Discovery`))|>
+    dplyr::mutate(date = mdy(`Date of Discovery`), class = "spills", id = row_number())|>
+    dplyr::filter(date >= mdy("01/01/2018") & date <= mdy("12/31/2023"))|>
+    sf::st_as_sf(coords =c("Longitude","Latitude"),crs = "+proj=longlat +ellps=GRS80 +datum=NAD83 +no_defs")|>
+    sf::st_transform(crs = st_crs(d4))|>
+    dplyr::select(class, id)
+  
+  # combine into single feature
+  allOilAndGas<- dplyr::bind_rows(d1,d2,d3,d4,d5)|>
+    sf::st_transform(crs = st_crs(cbg))
+
+  # returns a postition index on the interestion of the cbg per each oilAndGas location
+  t1 <- sf::st_intersects(x = allOilAndGas,
+                          y = cbg,
+                          sparse = TRUE
+  )
+  # when I unlist() the t1 object I'm looking a row... not sure why so using a for loop to assign data
+  ## item 84, has a lat value outside of the state so it can not reference cbg 
+  allOilAndGas$cbg_geoid <- NA
+  
+  for(i in 1:length(t1)){
+    index <- cbg$GEOID[t1[[i]]]
+    if(identical(index, character(0))){
+      allOilAndGas$cbg_geoid[i] <- NA
+    }else{
+      allOilAndGas$cbg_geoid[i] <- index
+    }
+  }
+  
+  # remove any na values 
+  allOilAndGas_clean <- allOilAndGas|> dplyr::filter(!is.na(cbg_geoid))
+  
+  # define the site score value (different for each indicator. )
+  allOilAndGas_clean$siteScore <- 1
+  # established the export 
+  exportPathMain <- "data/products/environmentalEffects"
+  
+  # create export dir
+  exportDir <- paste0(exportPathMain,"/oilAndGas")
+  if(!dir.exists(exportDir)){
+    dir.create(exportDir)
+  }
+  # process the datasets 
+  results <- processOilAndGas(data = allOilAndGas_clean)
+  
+  for(i in seq_along(results)){
+    data <- results[[i]]
+    name <- names(results)[i]
+    write.csv(x = data, file = paste0(exportDir,"/oilAndGas", name , ".csv"))
+  }
+}
+# 
+# filePath <- "data/raw/haps/APENS_7_15_2024.xlsx"
+# data <- d1
+# geometry <- geometryFiles[[1]]
+
+processOtherAir <- function(data){
+  # read in reference layers 
+  blocks <- sf::st_read("data/processed/geographies/blocksWithAdjustedPop.gpkg")
+  # block group relations 
+  blockGroupNeighbors <- readRDS("data/processed/geographies/bgNeighbors.RDS")
+  # pull census block groups 
+  cbg <- sf::st_read("data/processed/geographies/censusBlockGroup.gpkg")
+  
+  # drop site with no lat lon
+  d1 <- data |>
+    dplyr::filter(SITE_X_COORDINATE != 0)
+  ### Generate 5 year mean values for all pollutants
+  d2 <- d1 |>
+    dplyr::select(APCD_SITE_ID,
+                  SITE_SO2_ESTIM,
+                  SITE_NO2_ESTIM,
+                  SITE_NOX_ESTIM,
+                  SITE_CO_ESTIM,
+                  SITE_PM10_ESTIM
+    )|>
+    dplyr::group_by(APCD_SITE_ID)%>%
+    dplyr::summarise_all(mean ,na.rm = TRUE)
+  
+  ### normalize data based on volume of emission
+  d2[,2:6] <- apply(d2[,2:6], MARGIN = 2, FUN = normalizeVector)
+  ### calculate total
+  d2$total <- rowSums(d2[,c(-1)], na.rm = TRUE)
+  
+  
+  # create a spatial object 
+  sp1 <- d1 |>
+    dplyr::select("APCD_SITE_ID",   # rename for input into buffer process
+                  "SITE_X_COORDINATE",
+                  "SITE_Y_COORDINATE")|>
+    st_as_sf(coords =c("SITE_X_COORDINATE","SITE_Y_COORDINATE"),crs=4269 )|>
+    dplyr::left_join(y = d2, by = "APCD_SITE_ID" )|> 
+    dplyr::filter(total != 0)|>
+    dplyr::select("APCD_SITE_ID", "total") |>
+    dplyr::distinct()|>
+    sf::st_transform(crs = crs(cbg))
+  
+  
+  # returns a postition index on the interestion of the cbg per each mining location
+  t1 <- sf::st_intersects(x = sp1,
+                          y = cbg,
+                          sparse = TRUE
+  )
+  # when I unlist() the t1 object I'm looking a row... not sure why so using a for loop to assign data
+  ## item 84, has a lat value outside of the state so it can not reference cbg 
+  sp1$cbg_geoid <- NA
+  
+  for(i in 1:length(t1)){
+    index <- cbg$GEOID[t1[[i]]]
+    if(identical(index, character(0))){
+      sp1$cbg_geoid[i] <- NA
+    }else{
+      sp1$cbg_geoid[i] <- index
+    }
+  }
+  
+  # remove any na values 
+  sp1_clean <- sp1 |> dplyr::filter(!is.na(cbg_geoid))
+  
+  # define the site score value (different for each indicator. )
+  sp1_clean$siteScore <- sp1_clean$total
+  
+  
+  
+  
+  
+  
+  # define the index for the map function
+  index <- 1:nrow(sp1_clean)
+  # call the calculate score function 
+  exportFile <-  "data/products/environmentalExposures/otherAirQuality/detailsOnDistanceScoring.csv"
+  
+  ## conditional to avoid timely geoprocessing step 
+  if(!file.exists(exportFile)){
+    for(i in index){
+      val <- calculateDistanceScore(index = i,
+                                    sites = sp1_clean, 
+                                    blockGroupNeighbors= blockGroupNeighbors,
+                                    blocks = blocks )
+      if(i == 1){
+        scores <- val
+      }else{
+        scores <- scores |> bind_rows(val)
+      }
+    }
+    
+    # export here because this is a big geoprocessing step 
+    write.csv(scores, file = exportFile)
+  }else{
+    scores <- readr::read_csv(exportFile)
+  }
+  
+  
+  formatedScores <- scores |> 
+    # summarize to agggregate measures to the blockGEOID 
+    dplyr::group_by(GEOID20)|>
+    dplyr::summarise(aggregatedNoPopScore = sum(nonPopScore),
+                     aggregatedPercentPopScore = sum(percentPopScore),
+                     numberOfSource = n())
+  write.csv(formatedScores, file = "data/products/environmentalExposures/otherAirQuality/aggratedScoreValues.csv")
+  
+  # group these by census block group, census tract, county 
+  allScores <- formatedScores |> 
+    dplyr::mutate(
+      cGEOID = stringr::str_sub(GEOID20, start = 1, end = 5),
+      ctGEOID = stringr::str_sub(GEOID20, start = 1, end = 11),
+      bgGEOID = stringr::str_sub(GEOID20, start = 1, end = 12)
+    )
+  write.csv(allScores, file = "data/products/environmentalExposures/otherAirQuality/otherAirQuality_census.csv")
+  # 
+  # generate aggregates score measures 
+  ## county
+  countyScores <- allScores |> 
+    dplyr::group_by(cGEOID)|>
+    dplyr::summarise(noPopScore = sum(aggregatedNoPopScore),
+                     PercentPopScore = sum(aggregatedPercentPopScore),
+                     numberOfSource = n())|>
+    dplyr::select(
+      "GEOID" = cGEOID,
+      noPopScore,
+      PercentPopScore,
+      numberOfSource
+    )
+  ## censustract 
+  censusTractScores <- allScores |> 
+    dplyr::group_by(ctGEOID)|>
+    dplyr::summarise(noPopScore = sum(aggregatedNoPopScore),
+                     PercentPopScore = sum(aggregatedPercentPopScore),
+                     numberOfSource = n())|>
+    dplyr::select(
+      "GEOID" = ctGEOID,
+      noPopScore,
+      PercentPopScore,
+      numberOfSource
+    )
+  ## census block group 
+  censusBlockGroupScores <- allScores |> 
+    dplyr::group_by(bgGEOID)|>
+    dplyr::summarise(noPopScore = sum(aggregatedNoPopScore),
+                     PercentPopScore = sum(aggregatedPercentPopScore),
+                     numberOfSource = n())|>
+    dplyr::select(
+      "GEOID" = bgGEOID,
+      noPopScore,
+      PercentPopScore,
+      numberOfSource
+    )
+  return(
+    list(
+      "county" = countyScores,
+      "censusTract" = censusTractScores,
+      "censusBlockGroup" = censusBlockGroupScores
+    )
+  )
+  
+}
+
+
+
+
+#' Generate otherAirQuality measure
+#'
+#' @param filePath : location of otherAirQuality raster data
+#' @param geometryLayers : list of spatial object representing the processing levels
+#' @return : a list of results at the three processing levels. -- think about if this is needed out not
+#' 
+getOtherAir <- function(filePath,  geometryLayers){
+  # select geometry layers of interest 
+  geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
+  # read in data 
+  d1 <- readxl::read_xlsx(path = filePath)
+  # established the export 
+  exportPathMain <- "data/products/environmentalExposures"
+  # create export dir
+  exportDir <- paste0(exportPathMain,"/otherAirQuality")
+  if(!dir.exists(exportDir)){
+    dir.create(exportDir)
+  }
+  # process the datasets 
+  results <- processOtherAir(data = d1)
+  
+  for(i in seq_along(results)){
+    data <- results[[i]]
+    name <- names(results)[i]
+    write.csv(x = data, file = paste0(exportDir,"/otherAirQuality_", name , ".csv"))
+  }
+}
+# 
+# data <- allData
+# geometry <- geometryFiles[[1]]
+# name <- names(geometryFiles)[[1]]
+
+processOver65 <- function(geometry, name, data){
+  # select the data set of interest 
+  vals <- data[[grep(pattern = name, x = names(data))]] |> as.data.frame()
+  
+  # structure then generate and select measures of concern
+  output <- structureACS(vals) |>
+    dplyr::group_by(GEOID)|>
+    dplyr::mutate(
+      age_over65 = sum( B01001_020, B01001_021, B01001_022, B01001_023, B01001_024, B01001_025,
+                        B01001_044, B01001_045, B01001_046, B01001_047, B01001_048, B01001_049))|>
+    select("GEOID", "age_over65")
+  #export 
+  return(output)
+}
+
+
+#' Generate over65 measure
+#'
+#' @param geometryLayers : list of spatial object representing the processing levels
+#' 
+getOver65 <- function(geometryLayers){
+  # select geometry layers of interest 
+  geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
+  # read in data 
+  data <- list.files("data/processed/acs",pattern = ".csv",full.names = TRUE)
+  # organize for the function
+  allData <- list(
+    county = read_csv(data[grepl(pattern = "county", x = data)]),
+    censusTract = read_csv(data[grepl(pattern = "censusTract", x = data)]),
+    censusBlockGroup = read_csv(data[grepl(pattern = "censusBlockGroup", x = data)])
+  )
+  
+  
+  # established the export 
+  exportPathMain <- "data/products/sensitivePopulation"
+  # create export dir
+  exportDir <- paste0(exportPathMain,"/over65")
+  if(!dir.exists(exportDir)){
+    dir.create(exportDir)
+  }
+  # process the datasets 
+  results <- purrr::map2(.x = geometryFiles,
+                         .y = names(geometryFiles),
+                         .f = processOver65,
+                         data = allData)
+  
+  for(i in seq_along(results)){
+    data <- results[[i]]
+    name <- names(results)[i]
+    write.csv(x = data, file = paste0(exportDir,"/over65_", name , ".csv"))
+  }
+}
+# 
+# filePath <- "data/raw/epa_cmaq/2021_ozone_daily_8hour_maximum.txt.gz"
+# data <- d1
+# geometry <- geometryFiles[[1]]
+processOzone <- function(geometry, name, data){
+  
+  # reassign the GEOID based on county FIPS 
+  if(name == "county"){
+    data$FIPS <- stringr::str_sub(data$FIPS, start = 1, end = 5)
+  }
+  # run the group by processinging and the GEOID 
+  output <- data |>
+    dplyr::mutate(Conc = as.numeric(`ozone_daily_8hour_maximum(ppb)`))|>
+    dplyr::group_by(FIPS) %>%
+    summarise(ozone_mean = mean(Conc)) %>%
+    #rename as tract for calculation below
+    dplyr::select(FIPS, ozone_mean)
+  
+  # join to census block 
+  if(name == "censusBlockGroup"){
+    output <- geometry |>
+      sf::st_drop_geometry()|>
+      dplyr::mutate(geoid2 = stringr::str_sub(GEOID, 1,11))|>
+      dplyr::left_join(y = output, by = c("geoid2" = "FIPS"))|>
+      dplyr::select(GEOID, ozone_mean)
+  }
+  #forcing the name and county and ct have FIPS still 
+  names(output) <- c("GEOID","ozone_mean")
+  return(output)
+}
+
+
+
+
+#' Generate ozone measure
+#'
+#' @param filePath : location of ozone raster data
+#' @param geometryLayers : list of spatial object representing the processing levels
+#' @return : a list of results at the three processing levels. -- think about if this is needed out not
+#' 
+getOzone <- function(filePath,  geometryLayers){
+  # select geometry layers of interest 
+  geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
+  # unzip data 
+  extractedFile <- "data/raw/epa_cmaq/2021_ozone_daily_8hour_maximum.txt"
+  if(!file.exists(extractedFile)){
+    R.utils::gunzip(filePath,remove = FALSE)
+  }
+  ## read in the data and filter to colorado 
+  d1 <- vroom::vroom(extractedFile) |>
+    dplyr::filter(stringr::str_starts(FIPS, "08"))
+
+  # established the export 
+  exportPathMain <- "data/products/environmentalExposures"
+  # create export dir
+  exportDir <- paste0(exportPathMain,"/ozone")
+  if(!dir.exists(exportDir)){
+    dir.create(exportDir)
+  }
+  # process the datasets 
+  results <- purrr::map2(.x = geometryFiles,
+                        .y = names(geometryFiles),
+                        .f = processOzone,
+                        data = d1)
+  
+  for(i in seq_along(results)){
+    data <- results[[i]]
+    name <- names(results)[i]
+    write.csv(x = data, file = paste0(exportDir,"/ozone_", name , ".csv"))
+  }
+}
+# 
+# filePath <- "data/raw/epa_cmaq/2021_pm25_daily_average.txt.gz"
+# data <- d1
+# geometry <- geometryFiles[[1]]
+name <- "censusBlockGroup"
+processPM25 <- function(geometry, name, data){
+  # reassign the GEOID based on county FIPS 
+  if(name == "county"){
+    data$FIPS <- stringr::str_sub(data$FIPS, start = 1, end = 5)
+  }
+  # run the group by processinging and the GEOID 
+  output <- data |>
+    dplyr::mutate(Conc = as.numeric(`pm25_daily_average(ug/m3)`))|>
+    dplyr::group_by(FIPS) %>%
+    summarise(pm25_mean = mean(Conc)) %>%
+    #rename as tract for calculation below
+    dplyr::select(FIPS, pm25_mean)
+
+  # join to census block 
+  if(name == "censusBlockGroup"){
+    output <- geometry |>
+      sf::st_drop_geometry()|>
+      dplyr::mutate(geoid2 = stringr::str_sub(GEOID, 1,11))|>
+      dplyr::left_join(y = output, by = c("geoid2" = "FIPS"))|>
+      dplyr::select(GEOID, pm25_mean)
+  }
+  #forcing the name and county and ct have FIPS still 
+  names(output) <- c("GEOID","pm25_mean")
+  return(output)
+}
+
+
+
+
+#' Generate pm25 measure
+#'
+#' @param filePath : location of pm25 raster data
+#' @param geometryLayers : list of spatial object representing the processing levels
+#' @return : a list of results at the three processing levels. -- think about if this is needed out not
+#' 
+getPM25 <- function(filePath,  geometryLayers){
+  # select geometry layers of interest 
+  geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
+  # unzip data 
+  extractedFile <- "data/raw/epa_cmaq/2021_pm25_daily_average.txt"
+  if(!file.exists(extractedFile)){
+    R.utils::gunzip(filePath,remove = FALSE)
+  }
+  ## read in the data and filter to colorado 
+  d1 <- vroom::vroom(extractedFile) |>
+    dplyr::filter(stringr::str_starts(FIPS, "08"))
+  
+  # established the export 
+  exportPathMain <- "data/products/environmentalExposures"
+  # create export dir
+  exportDir <- paste0(exportPathMain,"/pm25")
+  if(!dir.exists(exportDir)){
+    dir.create(exportDir)
+  }
+  # process the datasets 
+  results <- purrr::map2(.x = geometryFiles,
+                         .y = names(geometryFiles),
+                         .f = processPM25,
+                         data = d1)
+  
+  for(i in seq_along(results)){
+    data <- results[[i]]
+    name <- names(results)[i]
+    write.csv(x = data, file = paste0(exportDir,"/pm25_", name , ".csv"))
+  }
+}
+# 
+# data <- allData
+# geometry <- geometryFiles[[1]]
+# name <- names(geometryFiles)[[1]]
+
+processPOC <- function(geometry, name, data){
+  # select the data set of interest 
+  vals <- data[[grep(pattern = name, x = names(data))]] |> as.data.frame()
+  
+  # structure then generate and select measures of concern
+  output <- structureACS(vals) |>
+    dplyr::group_by(GEOID)|>
+    dplyr::mutate(
+      percent_minority = ifelse(B03002_001 == 0,
+                                NA,
+                                (B03002_001 - B03002_003) /
+                                  B03002_001))|>
+    select("GEOID", "percent_minority")
+  #export 
+  return(output)
+}
+
+
+#' Generate poc measure
+#'
+#' @param geometryLayers : list of spatial object representing the processing levels
+#' 
+getPOC <- function(geometryLayers){
+  # select geometry layers of interest 
+  geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
+  # read in data 
+  data <- list.files("data/processed/acs",pattern = ".csv",full.names = TRUE)
+  # organize for the function
+  allData <- list(
+    county = read_csv(data[grepl(pattern = "county", x = data)]),
+    censusTract = read_csv(data[grepl(pattern = "censusTract", x = data)]),
+    censusBlockGroup = read_csv(data[grepl(pattern = "censusBlockGroup", x = data)])
+  )
+  
+  
+  # established the export 
+  exportPathMain <- "data/products/demographics"
+  # create export dir
+  exportDir <- paste0(exportPathMain,"/poc")
+  if(!dir.exists(exportDir)){
+    dir.create(exportDir)
+  }
+  # process the datasets 
+  results <- purrr::map2(.x = geometryFiles,
+                         .y = names(geometryFiles),
+                         .f = processPOC,
+                         data = allData)
+  
+  for(i in seq_along(results)){
+    data <- results[[i]]
+    name <- names(results)[i]
+    write.csv(x = data, file = paste0(exportDir,"/poc_", name , ".csv"))
+  }
+}
+# 
+# data <- allData
+# geometry <- geometryFiles[[1]]
+# name <- names(geometryFiles)[[1]]
+
+processRMPsites <- function(geometry, name, data){
+  # select the data set of interest 
+  vals <- data[[grep(pattern = name, x = names(data))]] |> as.data.frame()
+  
+  # structure then generate and select measures of concern
+  output <- vals |> 
+    select("GEOID", "proxRMPsites")
+  #export 
+  return(output)
+}
+
+
+#' Generate rmpSites measure
+#'
+#' @param geometryLayers : list of spatial object representing the processing levels
+#' 
+getRMPsites <- function(geometryLayers){
+  # select geometry layers of interest 
+  geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
+  # read in data 
+  data <- list.files("data/processed/ejscreen",pattern = ".csv",full.names = TRUE)
+  # organize for the function
+  allData <- list(
+    county = read_csv(data[grepl(pattern = "county", x = data)]),
+    censusTract = read_csv(data[grepl(pattern = "censusTract", x = data)]),
+    censusBlockGroup = read_csv(data[grepl(pattern = "censusBlockGroup", x = data)])
+  )
+  
+  
+  # established the export 
+  exportPathMain <- "data/products/environmentalEffects"
+  # create export dir
+  exportDir <- paste0(exportPathMain,"/rmpSites")
+  if(!dir.exists(exportDir)){
+    dir.create(exportDir)
+  }
+  # process the datasets 
+  results <- purrr::map2(.x = geometryFiles,
+                         .y = names(geometryFiles),
+                         .f = processRMPsites,
+                         data = allData)
+  
+  for(i in seq_along(results)){
+    data <- results[[i]]
+    name <- names(results)[i]
+    write.csv(x = data, file = paste0(exportDir,"/rmpSites_", name , ".csv"))
+  }
+}
+# 
+# filePath <- "data/raw/surfaceWater/streams_303d_2024.shp"
+# data <- data
+# geometry <- geometryFiles[[1]]
+# name <- names(geometryFiles)[[1]]
+
+processStreams <- function(geometry, name, data){
+  
+  streams <- data |>
+    filter(substr(AUID, 1, 2) == "CO") # removing 4 "Lake" obs
+  
+  ### Organize the Data
+  
+  stream_uses <- streams |>
+    mutate( # Uses
+      AgUse = ifelse(Ag == "NA", 0, 1),
+      AQLifeUse = ifelse(AQLife == "NA", 0, 1),
+      RecUse = ifelse(Rec == "NA", 0, 1),
+      WSUse = ifelse(WS == "NA", 0, 1),
+      TotalUses = AgUse+AQLifeUse+RecUse+WSUse)|>
+    mutate( # imparment 
+      impairedUse = ifelse(Cat == "5", 1, 0), # if the Cat == 5 then it has 303d impaired sections 
+      AgImpaired = ifelse(Ag == "N", 1, 0),
+      AQLifeImpaired = ifelse(AQLife == "N", 1, 0),
+      RecImpaired = ifelse(Rec == "N", 1, 0),
+      WSImpaired = ifelse(WS == "N", 1, 0),
+      TotalImpaired = AgImpaired+AQLifeImpaired+RecImpaired+WSImpaired,
+      PercentUsesImpaired = 100*TotalImpaired/TotalUses,
+    ) |>
+    dplyr::mutate(
+      # Assessment status
+      AgAssessed = ifelse(Ag == "X"| Ag == "NA", 0, 1),
+      AQLifeAssessed = ifelse(AQLife == "X"| AQLife == "NA", 0, 1),
+      RecAssessed = ifelse(Rec == "X"| Rec == "NA", 0, 1),
+      WSAssessed = ifelse(WS == "X"| WS == "NA", 0, 1),
+      TotalAssessed = AgAssessed+AQLifeAssessed+RecAssessed+WSAssessed,
+      Assessed = ifelse(TotalAssessed > 0, 1, 0),
+      Assessed_char = as.character(Assessed))
+
+
+  #### Overlay streams and geographic boundaries ----
+  geometry <- geometry|>
+    st_transform(crs = st_crs(stream_uses))|>
+    select("GEOID")
+  
+  
+  # dataframe for holding results 
+  geom <- data.frame(matrix(nrow = nrow(geometry), ncol = 3))
+  names(geom) <- c("GEOID", "AvgPercentImpaired", "PcntUnassessed")
+  for(i in seq_along(geometry$GEOID)){
+    print(i)
+    # assign geoid 
+    g1 <- geometry[i, ]
+    geom$GEOID[i] <- g1$GEOID
+  
+    # crop 
+    cropStreams <- sf::st_crop(stream_uses,g1)
+    #intersect
+    overlay <- st_intersection(cropStreams, g1) # very slow  
+    # test for now streams in area 
+    if(nrow(overlay)==0){
+      geom$AvgPercentImpaired[i] <- NA
+      geom$PcntUnassessed[i] <- NA
+    }else{
+      overlay$seglength <- st_length(overlay)
+      
+      # generate the measures 
+      d1 <-  overlay|>
+        sf::st_drop_geometry()|> # drop stream segment geometry for faster processing.
+        dplyr::mutate(
+          #convert segment length in meters to miles
+          stream_mi = as.numeric(seglength)*0.000621,
+          
+          # Calculate the numerator for average percent impaired:
+          # Stream segment length multiplied by the percent of uses impaired.
+          # These will be added together for the entire county in the
+          # "summarise" step below.
+          numerator_impaired = stream_mi*(PercentUsesImpaired/100),
+          
+          # Calculate the numerator for percent unassessed
+          # Stream segment length for completely unassessed streams.
+          # These will be added together for the entire county in the
+          # "summarise" step below.
+          numerator_completelyunassessed = ifelse(Assessed == 0, stream_mi, 0))|>
+          dplyr::summarise(TotalStreamLengthMi = sum(stream_mi, na.rm = TRUE),
+                         numerator_impaired = sum(numerator_impaired, na.rm = TRUE),
+                         numerator_completelyunassessed = sum(numerator_completelyunassessed, na.rm = TRUE))|>
+        ## because we are working on single counties we can not apply percent rank function until alfter all geometries
+        ## have been resolved.
+          mutate(AvgPercentImpaired = numerator_impaired/TotalStreamLengthMi,
+                 PcntUnassessed = 100*numerator_completelyunassessed/TotalStreamLengthMi
+        )
+      
+      geom$AvgPercentImpaired[i] <- d1$AvgPercentImpaired
+      geom$PcntUnassessed[i] <- d1$PcntUnassessed
+    }
+  }
+    # format for export 
+    output <- geom |>
+      dplyr::mutate(
+        ImpairedPctl = percent_rank(AvgPercentImpaired)*100,
+        UnassessedPctl = percent_rank(PcntUnassessed)*100,
+        CombinedMetric = ImpairedPctl + UnassessedPctl/2) |>
+      dplyr::select(
+        "GEOID", "surfaceWater"= "CombinedMetric"
+      )
+  
+  return(output)
+}
+
+
+
+
+#' Generate streams measure
+#'
+#' @param filePath : location of streams raster data
+#' @param geometryLayers : list of spatial object representing the processing levels
+#' @return : a list of results at the three processing levels. -- think about if this is needed out not
+#' 
+getStreams <- function(filePath,geometryLayers){
+  # select geometry layers of interest 
+  geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
+  # read in data 
+  data <- sf::st_read(filePath)
+  
+  # established the export 
+  exportPathMain <- "data/products/environmentalEffects"
+  # create export dir
+  exportDir <- paste0(exportPathMain,"/streams")
+  if(!dir.exists(exportDir)){
+    dir.create(exportDir)
+  }
+  # process the datasets 
+  results <- purrr::map2(.x = geometryFiles,
+                         .y = names(geometryFiles),
+                         .f = processStreams,
+                         data = data)
+  
+  for(i in seq_along(results)){
+    data <- results[[i]]
+    name <- names(results)[i]
+    write.csv(x = data, file = paste0(exportDir,"/streams_", name , ".csv"))
+  }
+}
+# 
+# data <- allData
+# geometry <- geometryFiles[[1]]
+# name <- names(geometryFiles)[[1]]
+
+processTraffic <- function(geometry, name, data){
+  # select the data set of interest 
+  vals <- data[[grep(pattern = name, x = names(data))]] |> as.data.frame()
+  
+  # structure then generate and select measures of concern
+  output <- vals |> 
+    select("GEOID", "traffic")
+  #export 
+  return(output)
+}
+
+
+#' Generate traffic measure
+#'
+#' @param geometryLayers : list of spatial object representing the processing levels
+#' 
+getTraffic <- function(geometryLayers){
+  # select geometry layers of interest 
+  geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
+  # read in data 
+  data <- list.files("data/processed/ejscreen",pattern = ".csv",full.names = TRUE)
+  # organize for the function
+  allData <- list(
+    county = read_csv(data[grepl(pattern = "county", x = data)]),
+    censusTract = read_csv(data[grepl(pattern = "censusTract", x = data)]),
+    censusBlockGroup = read_csv(data[grepl(pattern = "censusBlockGroup", x = data)])
+  )
+  
+  
+  # established the export 
+  exportPathMain <- "data/products/environmentalExposures"
+  # create export dir
+  exportDir <- paste0(exportPathMain,"/traffic")
+  if(!dir.exists(exportDir)){
+    dir.create(exportDir)
+  }
+  # process the datasets 
+  results <- purrr::map2(.x = geometryFiles,
+                         .y = names(geometryFiles),
+                         .f = processTraffic,
+                         data = allData)
+  
+  for(i in seq_along(results)){
+    data <- results[[i]]
+    name <- names(results)[i]
+    write.csv(x = data, file = paste0(exportDir,"/traffic_", name , ".csv"))
+  }
+}
+# 
+# data <- allData
+# geometry <- geometryFiles[[1]]
+# name <- names(geometryFiles)[[1]]
+
+processUnder5 <- function(geometry, name, data){
+  # select the data set of interest 
+  vals <- data[[grep(pattern = name, x = names(data))]] |> as.data.frame()
+  
+
+  # structure then generate and select measures of concern
+  output <- structureACS(vals) |>
+    dplyr::group_by(GEOID)|>
+    dplyr::mutate(
+      age_under5 = sum(B01001_003, B01001_027))|>
+    select("GEOID", "age_under5")
+  #export 
+  return(output)
+}
+
+
+#' Generate under5 measure
+#'
+#' @param geometryLayers : list of spatial object representing the processing levels
+#' 
+getUnder5 <- function(geometryLayers){
+  # select geometry layers of interest 
+  geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
+  # read in data 
+  data <- list.files("data/processed/acs",pattern = ".csv",full.names = TRUE)
+  # organize for the function
+  allData <- list(
+    county = read_csv(data[grepl(pattern = "county", x = data)]),
+    censusTract = read_csv(data[grepl(pattern = "censusTract", x = data)]),
+    censusBlockGroup = read_csv(data[grepl(pattern = "censusBlockGroup", x = data)])
+  )
+  
+  
+  # established the export 
+  exportPathMain <- "data/products/sensitivePopulation"
+  # create export dir
+  exportDir <- paste0(exportPathMain,"/under5")
+  if(!dir.exists(exportDir)){
+    dir.create(exportDir)
+  }
+  # process the datasets 
+  results <- purrr::map2(.x = geometryFiles,
+                         .y = names(geometryFiles),
+                         .f = processUnder5,
+                         data = allData)
+  
+  for(i in seq_along(results)){
+    data <- results[[i]]
+    name <- names(results)[i]
+    write.csv(x = data, file = paste0(exportDir,"/under5_", name , ".csv"))
+  }
+}
+  
+# 
+# data <- allData
+# geometry <- geometryFiles[[1]]
+# name <- names(geometryFiles)[[1]]
+
+processWasteWater <- function(geometry, name, data){
+  # select the data set of interest 
+  vals <- data[[grep(pattern = name, x = names(data))]] |> as.data.frame()
+  
+  # structure then generate and select measures of concern
+  output <- vals |> 
+    select("GEOID", "wasteWaterDischarge")
+  #export 
+  return(output)
+}
+
+
+#' Generate wasteWater measure
+#'
+#' @param geometryLayers : list of spatial object representing the processing levels
+#' 
+getWasteWater <- function(geometryLayers){
+  # select geometry layers of interest 
+  geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
+  # read in data 
+  data <- list.files("data/processed/ejscreen",pattern = ".csv",full.names = TRUE)
+  # organize for the function
+  allData <- list(
+    county = read_csv(data[grepl(pattern = "county", x = data)]),
+    censusTract = read_csv(data[grepl(pattern = "censusTract", x = data)]),
+    censusBlockGroup = read_csv(data[grepl(pattern = "censusBlockGroup", x = data)])
+  )
+  
+  
+  # established the export 
+  exportPathMain <- "data/products/environmentalEffects"
+  # create export dir
+  exportDir <- paste0(exportPathMain,"/wasteWater")
+  if(!dir.exists(exportDir)){
+    dir.create(exportDir)
+  }
+  # process the datasets 
+  results <- purrr::map2(.x = geometryFiles,
+                         .y = names(geometryFiles),
+                         .f = processWasteWater,
+                         data = allData)
+  
+  for(i in seq_along(results)){
+    data <- results[[i]]
+    name <- names(results)[i]
+    write.csv(x = data, file = paste0(exportDir,"/wasteWater_", name , ".csv"))
+  }
+}
+# 
+## prep step on the data
+# unzip("data/raw/wildfireRisk/RDS-2015-0047-4_Data.zip", exdir ="data/raw/wildfireRisk" )
+
+# filePath <- "data/raw/wildfireRisk/Data/whp2023_GeoTIF/whp2023_cnt_conus.tif"
+# data <- terra::rast(filePath)
+# geometry <- geometryFiles[[1]]
+processFire<- function(geometry, data){
+  # convert to terra and project 
+  geomVect <- terra::vect(geometry)|>
+    terra::project(data)
+  
+  # extract Values
+  extractedVals <- terra::extract(x = data, y = geomVect,fun = mean, na.rm = TRUE)
+  
+  # output
+  output <- geomVect |>
+    as.data.frame()|>
+    dplyr::mutate(
+      wildfire = extractedVals$Band_1
+    )|>
+    dplyr::select(GEOID, wildfire)
+  return(output)  
+}
+
+
+
+
+#' Generate noise measure
+#'
+#' @param filePath : location of noise raster data
+#' @param geometryLayers : list of spatial object representing the processing levels
+#' @return : a list of results at the three processing levels. -- think about if this is needed out not
+#' 
+getWildfire <- function(filePath,  geometryLayers){
+  # select geometry layers of interest 
+  geometryFiles <- geometryLayers[c("county","censusTract","censusBlockGroup")]
+  # read in data 
+  r1 <- terra::rast(filePath)
+  # established the export 
+  exportPathMain <- "data/products/climateVulnerability"
+  # create export dir
+  exportDir <- paste0(exportPathMain,"/wildfire")
+  if(!dir.exists(exportDir)){
+    dir.create(exportDir)
+  }
+  # process the datasets 
+  results <- purrr::map(.x = geometryFiles,
+                         .f = processFire,
+                         data = r1)
+  
+  for(i in seq_along(results)){
+    data <- results[[i]]
+    name <- names(results)[i]
+    write.csv(x = data, file = paste0(exportDir,"/fire_", name , ".csv"))
+  }
+  
+  #output the object
+  return(results)
+}
+###
+# This method is designed to mirror the buffer approach from the 
+# 2024 EJScreen technical documentation 
+# --------------------------------------------
+# Direct quotes from the ejscreen doc 
+# 1. This formula is simply a population-weighted average – it sums the 
+# population-weighted raw values, and then divides that sum by the total 
+# population in the buffer.
+#
+# 2. To provide the most accurate counts that are currently feasible for a 
+# screening tool, EJScreen uses an approach based on decennial Census block 
+# internal points. EJScreen estimates the fraction of the Census block group 
+# population that is inside the buffer by using block-level population counts 
+# from the decennial Census
+#
+# --------------------------------------------
+# Summary of methods from quotes 
+#
+# - buffer distance is a user defined features 
+# - generate a buffer, and select all block internal points with are within the
+#   buffer object
+# - Calculate the total population of all blocks
+# - using selected block, select the total population and measured value for each 
+#   block group 
+# - Calculations occur for each unique block group
+# - Numerator : (pop of select Blocks / pop of block group decadial) * pop of block group acs * measured value of block group
+# - denominator : sum of all (pop of select Blocks / pop of block group decadial) * pop of block group acs
+# - Full value; sum of all records values within block groups 
+
+
+# move this to the processing sections ------------------------------------
+## need these from the raw folder for the population data and lat long of block centers
+# block <- terra::vect("data/raw/censusBlocks.gpkg") # pulled from 2020... 
+# blockGroups <- terra::vect("data/raw/censusBlockGroups.gpkg") 
+
+# library(tidycensus)
+# library(sf)
+# 
+# ### need both the ACS estimate and the census value
+# # from the acs 
+# blockGroup_pop <- get_acs(
+#   cache_table = TRUE,
+#   geography = "cbg",
+#   year = 2022,
+#   state = "08",
+#   variables = "B01001_001"
+# )|>
+#   dplyr::select(GEOID,
+#                 "estimateACSPop" = estimate)
+# ## from the decadel --- my suggestion based on 1. alignment with ejscreen, 2. block level population data is from 2020
+# blockGroup_pop2 <- get_decennial(
+#   cache_table = TRUE,
+#   geography = "cbg",
+#   year = 2020,
+#   state = "08",
+#   variables = "P1_001N" # total number of people 
+# )|>
+#   dplyr::select(GEOID,
+#                 "estimateCensusPop" = value)
+# # join to the blockgroup data
+# blockGroups2 <- blockGroups |>
+#   st_as_sf() |> 
+#   dplyr::left_join(y =blockGroup_pop, by = "GEOID")|>
+#   dplyr::left_join(y =blockGroup_pop2, by = "GEOID")|>
+#   terra::vect()
+# 
+# 
+# 
+# # generate the block points 
+# blockData <- as.data.frame(block) |>
+#   dplyr::mutate(
+#     lon = as.numeric(INTPTLON20),
+#     lat = as.numeric(stringr::str_sub(INTPTLAT20, 2, -2))
+#   )|>
+#   terra::vect(geom = c("lon","lat"), crs= terra::crs(block))
+# 
+# # generate the center of all blocks 
+# # terra::writeVector(x = blockData,filename = "data/processed/geographies/blockCenters.gpkg", overwrite=TRUE)
+# 
+# head(blockData)
+
+calBufferValues <- function(location, bufferDist, measureValue, blockCenters, blockGroups){
+  # location : the point or area of interest
+  # measureValue : column name that is used to define the value of interest 
+  # blockCenters : point dataset with pop values 
+  # blockGroups : vector dataset with 
+  
+  # buffer location 
+  buffArea <- terra::buffer(x = location, width = bufferDist)
+  # test intersection on block centers
+  t1 <- terra::intersect(x = blockCenters, y = buffArea)
+  # select blocks of interest 
+  b1 <- blockCenters[blockCenters$GEOID20 %in% t1$GEOID20, ]
+  
+  ## determine which census block groups are within the selected block centers 
+  cbgID <- b1 |>
+    as.data.frame()|>
+    dplyr::mutate(
+      bgGEOID = stringr::str_trunc(GEOID20, width = 12, side = "right",ellipsis ="")
+    )|>
+    dplyr::group_by(bgGEOID)|>
+    dplyr::summarise(
+      blockPop = sum(POP20, na.rm=TRUE)
+    )
+  # block group data with block values 
+  selectCBG <- blockGroups |> 
+    as.data.frame()|>
+    dplyr::filter(GEOID %in% cbgID$bgGEOID)|> 
+    dplyr::select("GEOID", "estimateACSPop", "estimateCensusPop")|>
+    dplyr::left_join(y = cbgID, by = c("GEOID"= "bgGEOID")) |>
+    dplyr::mutate(
+      popWeighted = blockPop/estimateCensusPop* estimateACSPop,
+      totalPop = sum(popWeighted),
+      weightValue = popWeighted*measureValue,
+      divideByTotalPop = weightValue / totalPop[1]
+    )
+  # find result 
+  result <- sum(selectCBG$weightValue)/selectCBG$totalPop[1]
+  ### this is just returning the measureValue, which makes sense because it's the only feature 
+  ### not on the top and bottom of the equation 
+  
+  ### the other though here is that there might be a different measured value depending on the
+  ### census block used. This may or may not apply to some buffered datasets, but wouldn't matter for 
+  ### for things like apens 
+  
+  
+}
+

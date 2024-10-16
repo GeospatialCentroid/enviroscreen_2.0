@@ -3,6 +3,16 @@
 # geometry <- geometryFiles[[3]]
 # name <- names(geometryFiles)[[3]]
 
+#' Title
+#'
+#' @param geometry 
+#' @param name 
+#' @param data 
+#'
+#' @return
+#' @export
+#'
+#' @examples
 processEnvironmentalExposures <- function(geometry, name, data){
   # select the data set of interest 
   vals <- data[[grep(pattern = name, x = names(data))]]
@@ -27,18 +37,16 @@ processEnvironmentalExposures <- function(geometry, name, data){
   output <- geom |>
     dplyr::select(
       "GEOID",
-      "Air toxics emissions" = "PercentPopScore.x",
+      "Air toxics emissions" = "airToxins",
       "Diesel particulate matter" = "dieselPM",
       "Drinking water regulations" = "Percentile",
       "Lead exposure risk" = "lead",
       "Noise" = "noise",
-      "Other air pollutants"  = "PercentPopScore.y",        
+      "Other air pollutants"  = "PercentPopScore",        
       "Ozone" = "ozone_mean",
       "Fine particle pollution" = "pm25_mean",
       "Traffic proximity and volume"= "traffic"      
-    ) 
-  
-  |>
+    ) |>
     dplyr::mutate(
       across(where(is.numeric),
              .fns = list(pcntl = ~cume_dist(.)*100),

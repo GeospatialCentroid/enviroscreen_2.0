@@ -10,7 +10,7 @@ loadFunctions <- function(path){
   # this grabs all files, so might hit some issues as we can only source .R files 
   # Loop here to print the function name, can be helpful to have
   for (i in seq_along(filePaths)) {
-    print(i)
+    print(filePaths[i])
     source(file = filePaths[i], echo = FALSE)
   }
 }

@@ -1,7 +1,7 @@
 # 
 # filePath <- "data/raw/noise/CONUS_L50dBA_sumDay_exi.tif"
-# data <- terra::rast(filePath)  
-# geometry <- geometryFiles[[1]]
+# data <- terra::rast(filePath)
+# geometry <- geometryFiles[[2]]
 processNoise <- function(geometry, data){
   # convert to terra and project 
   geomVect <- terra::vect(geometry)|>

@@ -27,13 +27,14 @@ processGeometryLayers <-function(){
   statePath <- paste0(exportDir,"/state.gpkg")
   countyPath <- paste0(exportDir,"/county.gpkg")
   censusTractPath <- paste0(exportDir,"/censusTract.gpkg")
+  censusTractPath2010 <- paste0(exportDir,"/censusTract2010.gpkg")
   censusBlockGroupPath <- paste0(exportDir,"/censusBlockGroup.gpkg")
   censusBlockPath <- paste0(exportDir,"/censusBlock.gpkg")
   
   # state 
   print("processing state")
   if(!file.exists(statePath)){
-    state <- sf::st_read(paths[grepl(pattern = geomName[5], x = paths)]) |>
+    state <- sf::st_read(paths[grepl(pattern = "state", x = paths)]) |>
       dplyr::select(GEOID, NAME)
     sf::st_write(obj = state, dsn = statePath)
   }else{
@@ -42,7 +43,7 @@ processGeometryLayers <-function(){
   # county 
   print("processing county")
   if(!file.exists(countyPath)){
-    county <- sf::st_read(paths[grepl(pattern = geomName[4], x = paths)]) |>
+    county <- sf::st_read(paths[grepl(pattern = "county", x = paths)])|>
       dplyr::select(GEOID, NAME)
     sf::st_write(obj = county, dsn = countyPath)
   }else{
@@ -50,27 +51,39 @@ processGeometryLayers <-function(){
   }
   
   # censusTract
-  print("processing census tract")
+  print("processing census tract 2020")
   if(!file.exists(censusTractPath)){
-    censusTract <- sf::st_read(paths[grepl(pattern = geomName[3], x = paths)])|>
+    censusTract <- sf::st_read(paths[grepl(pattern = "censusTract.gpkg", x = paths)])|>
       dplyr::select(GEOID)
     sf::st_write(obj = censusTract, dsn = censusTractPath)
   }else{
     censusTract <- sf::st_read(censusTractPath)
   }
+  
+  # censusTract 2010
+  print("processing census tract 2010")
+  if(!file.exists(censusTractPath2010)){
+    censusTract2010 <- sf::st_read(paths[grepl(pattern = "censusTract2010.gpkg", x = paths)])|>
+      dplyr::select(GEOID10)
+    sf::st_write(obj = censusTract, dsn = censusTractPath2010)
+  }else{
+    censusTract2010 <- sf::st_read(censusTractPath2010)
+  }
+  
   # census Block Groups 
   print("processing census block group")
   if(!file.exists(censusBlockGroupPath)){
-    censusBlockGroups <- sf::st_read(paths[grepl(pattern = geomName[1], x = paths)])|>
+    censusBlockGroups <- sf::st_read(paths[grepl(pattern ="censusBlockGroups", x = paths)])|>
       dplyr::select(GEOID)
     sf::st_write(obj = censusBlockGroups, dsn = censusBlockGroupPath)
   }else{
     censusBlockGroups <- sf::st_read(censusBlockGroupPath)
   }
+  
   # census Blocks 
   print("processing census block")
   if(!file.exists(censusBlockPath)){
-  censusBlocks <- sf::st_read(paths[grepl(pattern = geomName[2], x = paths)])|>
+  censusBlocks <- sf::st_read(paths[grepl(pattern = "censusBlocks", x = paths)])|>
     dplyr::select(GEOID = GEOID20)
   sf::st_write(obj = censusBlocks, dsn =censusBlockPath)
   }else{
