@@ -3,7 +3,7 @@
 # data <- d1
 # geometry <- geometryFiles[[1]]
 
-processOtherAir <- function(data){
+processOtherAir <- function(data, geometries){
   # read in reference layers 
   blocks <- sf::st_read("data/processed/geographies/blocksWithAdjustedPop.gpkg")
   # block group relations 
@@ -118,30 +118,49 @@ processOtherAir <- function(data){
   write.csv(allScores, file = "data/products/environmentalExposures/otherAirQuality/otherAirQuality_census.csv")
   # 
   # generate aggregates score measures 
+  
   ## county
-  countyScores <- allScores |> 
-    dplyr::group_by(cGEOID)|>
-    dplyr::summarise(noPopScore = sum(aggregatedNoPopScore),
-                     PercentPopScore = sum(aggregatedPercentPopScore),
-                     numberOfSource = n())|>
-    dplyr::select(
-      "GEOID" = cGEOID,
-      noPopScore,
-      PercentPopScore,
-      numberOfSource
-    )
+  countyScores <- allScores |>
+    dplyr::group_by(cGEOID) |>
+    dplyr::summarise(
+      noPopScore = sum(aggregatedNoPopScore),
+      PercentPopScore = sum(aggregatedPercentPopScore),
+      numberOfSource = n()
+    )|>
+    dplyr::select("GEOID" = cGEOID,
+                  noPopScore,
+                  PercentPopScore,
+                  numberOfSource)
+  # joing to county data 
+  countyScores <- geometries$county |>
+    st_drop_geometry()|>
+    dplyr::select("GEOID")|>
+    dplyr::left_join(countyScores ,by = "GEOID")|>
+    dplyr::mutate(PercentPopScore = case_when(is.na(PercentPopScore) ~ 0,
+                                              .default = PercentPopScore))
+  
+  
   ## censustract 
-  censusTractScores <- allScores |> 
-    dplyr::group_by(ctGEOID)|>
-    dplyr::summarise(noPopScore = sum(aggregatedNoPopScore),
-                     PercentPopScore = sum(aggregatedPercentPopScore),
-                     numberOfSource = n())|>
-    dplyr::select(
-      "GEOID" = ctGEOID,
-      noPopScore,
-      PercentPopScore,
-      numberOfSource
-    )
+  censusTractScores <- allScores |>
+    dplyr::group_by(ctGEOID) |>
+    dplyr::summarise(
+      noPopScore = sum(aggregatedNoPopScore),
+      PercentPopScore = sum(aggregatedPercentPopScore),
+      numberOfSource = n()
+    ) |>
+    dplyr::select("GEOID" = ctGEOID,
+                  noPopScore,
+                  PercentPopScore,
+                  numberOfSource)
+  # join to get all missing features and assigned values of zero 
+  censusTractScores <- geometries$censusTract |>
+    st_drop_geometry()|>
+    dplyr::select("GEOID")|>
+    dplyr::left_join(countyScores ,by = "GEOID")|>
+    dplyr::mutate(PercentPopScore = case_when(is.na(PercentPopScore) ~ 0,
+                                              .default = PercentPopScore))
+  
+  
   ## census block group 
   censusBlockGroupScores <- allScores |> 
     dplyr::group_by(bgGEOID)|>
@@ -154,6 +173,14 @@ processOtherAir <- function(data){
       PercentPopScore,
       numberOfSource
     )
+  # join to get all missing features and assigned values of zero 
+  censusBlockGroupScores <- geometries$censusBlockGroup |>
+    st_drop_geometry()|>
+    dplyr::select("GEOID")|>
+    dplyr::left_join(countyScores ,by = "GEOID")|>
+    dplyr::mutate(PercentPopScore = case_when(is.na(PercentPopScore) ~ 0,
+                                              .default = PercentPopScore))
+  
   return(
     list(
       "county" = countyScores,
@@ -186,7 +213,7 @@ getOtherAir <- function(filePath,  geometryLayers){
     dir.create(exportDir)
   }
   # process the datasets 
-  results <- processOtherAir(data = d1)
+  results <- processOtherAir(data = d1, geometries = geometryFiles)
   
   for(i in seq_along(results)){
     data <- results[[i]]

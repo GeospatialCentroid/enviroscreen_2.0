@@ -39,18 +39,15 @@ processSensitivePopulation <- function(geometry, name, data){
       "Population over 64" = "age_over65",
       "Population under 5" = "age_under5"    
     )|>
-    dplyr::mutate(
-      across(where(is.numeric),
-             .fns = list(pcntl = ~cume_dist(.)*100),
-             .names = "{col}_{fn}")
-    )
+    calculateCumulativeDistance()
   
   output$sensitivePopulation <- output |>
     dplyr::select(contains("_pcntl"))|>
     apply(MARGIN = 1, FUN = gm_mean)
-  
-  # not super happy with the column naming at the moment
-  
+  # account for non populated areas 
+  if(name !="county"){
+    output <- removeZeroPopulation(data = output, name = name)
+  }
   #export 
   return(output)
 }

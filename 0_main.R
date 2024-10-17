@@ -7,7 +7,8 @@
 
 
 # source libraries ---
-pacman::p_load(terra, dplyr, stringr, sf,tigris,readr,readxl,R.utils,vroom)
+pacman::p_load(terra, dplyr, stringr, sf,tigris,readr,readxl,R.utils,
+               vroom, lubridate)
 
 #find sfdep,tmap, lubridate
 # tmap_mode("view")
