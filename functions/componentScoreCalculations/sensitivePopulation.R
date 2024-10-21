@@ -1,7 +1,7 @@
 # 
 # data <- allData
-# geometry <- geometryFiles[[2]]
-# name <- names(geometryFiles)[[2]]
+# geometry <- geometryFiles[[3]]
+# name <- names(geometryFiles)[[3]]
 
 processSensitivePopulation <- function(geometry, name, data){
   # select the data set of interest 

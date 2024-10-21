@@ -212,5 +212,8 @@ getPollutionAndClimate(geometryLayers = geometries)
 getEnviroScreen(geometryLayers = geometries)
 
 # process enviroscreen scores for export ----------------------------------
-
+export <- TRUE
+if(isTRUE(export)){
+  source("scripts/exportEnviroScreenScores.R")
+}
 
