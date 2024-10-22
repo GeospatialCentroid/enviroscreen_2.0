@@ -1,7 +1,7 @@
 # 
 # data <- allData
-# geometry <- geometryFiles[[1]]
-# name <- names(geometryFiles)[[1]]
+# geometry <- geometryFiles[[3]]
+# name <- names(geometryFiles)[[3]]
 
 processHousingBurden <- function(geometry, name, data){
   # select the data set of interest 

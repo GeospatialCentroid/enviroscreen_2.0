@@ -48,7 +48,8 @@ processHeart <- function(geometry, name, data){
     d2 <- data$mortality |>
       dplyr::filter(geog == "Census tract")|>
       dplyr::mutate(
-        GEOID = paste0("0", geoid)
+        GEOID = paste0("0", geoid),
+        adj_rate = as.numeric(adj_rate)
       )|>
       dplyr::select(
         GEOID,

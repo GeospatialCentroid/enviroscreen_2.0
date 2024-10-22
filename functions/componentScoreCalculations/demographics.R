@@ -1,7 +1,7 @@
 # 
 # data <- allData
-# geometry <- geometryFiles[[1]]
-# name <- names(geometryFiles)[[1]]
+# geometry <- geometryFiles[[2]]
+# name <- names(geometryFiles)[[2]]
 
 processDemoGraphics <- function(geometry, name, data){
   # select the data set of interest 

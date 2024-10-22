@@ -8,22 +8,18 @@
 #' @return A list containing three dataframes: county, censusTract, and censusBlockGroup.
 processlifeExectancy <- function(data) {
   # Filter the data for Colorado and remove rows with missing county names
-  coData <- data %>%
-    dplyr::filter(State == "Colorado", County != "(blank)") %>%
-    
+  coData <- data |>
+    dplyr::filter(State == "Colorado", County != "(blank)") |>
     # Clean county names by removing " County, CO"
     dplyr::mutate(county = stringr::str_replace_all(string = County,
                                                     pattern = " County, CO",
-                                                    replacement = "")) %>%
-    
-    # Select relevant columns
+                                                    replacement = "")) |>
     dplyr::select(
       "State",
       "county",
       "Census.Tract.Number",
       "Life.Expectancy", "Life.Expectancy.Standard.Error"
-    ) %>%
-    
+    ) |>
     # Create additional columns for census tract numbers
     dplyr::mutate(
       ctn = as.character(Census.Tract.Number),
@@ -33,8 +29,9 @@ processlifeExectancy <- function(data) {
   # Load geographic data
   county <- sf::st_read("data/processed/geographies/county.gpkg")
   censusBlockGroup <- sf::st_read("data/processed/geographies/censusBlockGroup.gpkg")
-  censusTract <- sf::st_read("data/raw/censusTract.gpkg") %>%
-    st_drop_geometry() %>%
+  # pulling from raw for centroid info to test relationship with the 2010 ct data 
+  censusTract <- sf::st_read("data/raw/censusTract.gpkg") |>
+    st_drop_geometry() |>
     dplyr::select(
       "STATEFP",
       "COUNTYFP",
@@ -44,11 +41,11 @@ processlifeExectancy <- function(data) {
       "NAMELSAD",
       "INTPTLAT",
       "INTPTLON"
-    ) %>%
+    ) |>
     sf::st_as_sf(coords = c("INTPTLON", "INTPTLAT"), crs = 4269)
   
   # Load 2010 census tract data
-  censusTract2010 <- sf::st_read("data/raw/censusTract2010.gpkg") %>%
+  censusTract2010 <- sf::st_read("data/raw/censusTract2010.gpkg") |>
     dplyr::select("STATEFP10",
                   "COUNTYFP10",
                   "TRACTCE10",
@@ -57,7 +54,7 @@ processlifeExectancy <- function(data) {
                   "NAMELSAD10")
   
   # Intersect 2020 centroids with 2010 areas to get 2010 GEOID
-  d1 <- sf::st_intersects(x = censusTract, y = censusTract2010, sparse = TRUE) %>% unlist()
+  d1 <- sf::st_intersects(x = censusTract, y = censusTract2010, sparse = TRUE) |> unlist()
   
   # Add 2010 GEOID to 2020 dataset
   censusTract$GEOID2010 <- censusTract2010$GEOID10[d1]
@@ -69,7 +66,7 @@ processlifeExectancy <- function(data) {
   # Join life data with county data
   lifeData <- dplyr::left_join(x = coData,
                                y = county,
-                               by = c("county" = "NAME")) %>%
+                               by = c("county" = "NAME")) |>
     dplyr::mutate(countyGEOID = str_sub(string = GEOID, start = 3, end = 5))
   
   # Initialize ctGEOID column
@@ -101,28 +98,28 @@ processlifeExectancy <- function(data) {
   ct2022 <- dplyr::left_join(censusTract, lifeData, by = c("GEOID2010" = "ctGEOID"), keep = TRUE)
   
   # Calculate life expectancy at different geographic levels
-  finalVals <- ct2022 %>%
+  finalVals <- ct2022 |>
     dplyr::select(
       "ctGEOID" = GEOID.x,
       "Life.Expectancy"
-    ) %>%
+    ) |>
     dplyr::mutate(
       cGEOID = stringr::str_sub(ctGEOID, start = 1, end = 5)
     )
   
-  countyVals <- finalVals %>%
-    dplyr::group_by(cGEOID) %>%
-    dplyr::summarise(lifeExpectancy = mean(Life.Expectancy, na.rm = TRUE)) %>%
+  countyVals <- finalVals |>
+    dplyr::group_by(cGEOID) |>
+    dplyr::summarise(lifeExpectancy = mean(Life.Expectancy, na.rm = TRUE)) |>
     dplyr::select("GEOID" = cGEOID, lifeExpectancy)
   
-  ctVals <- finalVals %>%
+  ctVals <- finalVals |>
     dplyr::select("GEOID" = ctGEOID,
                   lifeExpectancy = Life.Expectancy)
   
-  cbgVals <- censusBlockGroup %>%
-    st_drop_geometry() %>%
-    dplyr::mutate(GEOID2 = stringr::str_sub(GEOID, start = 1, end = 11)) %>%
-    dplyr::left_join(finalVals, by = c("GEOID2" = "ctGEOID")) %>%
+  cbgVals <- censusBlockGroup |>
+    st_drop_geometry() |>
+    dplyr::mutate(GEOID2 = stringr::str_sub(GEOID, start = 1, end = 11)) |>
+    dplyr::left_join(finalVals, by = c("GEOID2" = "ctGEOID")) |>
     dplyr::select("GEOID",
                   lifeExpectancy = Life.Expectancy)
   

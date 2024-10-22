@@ -49,11 +49,12 @@ processCancer <- function(geometry, name, data){
     d2 <- data$mortality |>
       dplyr::filter(geog == "Census tract")|>
       dplyr::mutate(
-        GEOID = paste0("0", geoid)
+        GEOID = paste0("0", geoid),
+        "adj_rate_mortality" = as.numeric(adj_rate)
       )|>
       dplyr::select(
         GEOID,
-        "adj_rate_mortality" = adj_rate
+        "adj_rate_mortality"
       )
     # set county FIPS for join 
     d2$geoid2 <- stringr::str_sub(d2$GEOID, start = 1, end = 5)

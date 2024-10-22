@@ -1,7 +1,7 @@
 # 
 # data <- allData
-# geometry <- geometryFiles[[3]]
-# name <- names(geometryFiles)[[3]]
+# geometry <- geometryFiles[[2]]
+# name <- names(geometryFiles)[[2]]
 
 processSensitivePopulation <- function(geometry, name, data){
   # select the data set of interest 
@@ -39,7 +39,9 @@ processSensitivePopulation <- function(geometry, name, data){
       "Population over 64" = "age_over65",
       "Population under 5" = "age_under5"    
     )|>
-    calculateCumulativeDistance()
+    dplyr::mutate("Life expectancy" = -1 * `Life expectancy`)|> #inverse as this is a positive measures
+    calculateCumulativeDistance()|>
+    dplyr::mutate("Life expectancy" = -1 * `Life expectancy`) #flip back to reflect measures values 
   
   output$sensitivePopulation <- output |>
     dplyr::select(contains("_pcntl"))|>

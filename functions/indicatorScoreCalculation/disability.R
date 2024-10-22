@@ -1,7 +1,7 @@
 # 
 # data <- allData
-# geometry <- geometryFiles[[3]]
-# name <- names(geometryFiles)[[3]]
+# geometry <- geometryFiles[[2]]
+# name <- names(geometryFiles)[[2]]
 
 processDisability <- function(geometry, name, data){
   
@@ -12,6 +12,13 @@ processDisability <- function(geometry, name, data){
     # structure then generate and select measures of concern
     output <- structureACS(vals) |>
       dplyr::group_by(GEOID)|>
+      # testing for why NA values are present 
+      # dplyr::select(B18101_004, B18101_007,
+      #               B18101_010, B18101_013,
+      #               B18101_016, B18101_019,
+      #               B18101_023, B18101_026,
+      #               B18101_029, B18101_032,
+      #               B18101_035, B18101_038,B18101_001)
       dplyr::mutate(
         percent_disability = sum(B18101_004, B18101_007,
                                  B18101_010, B18101_013,
