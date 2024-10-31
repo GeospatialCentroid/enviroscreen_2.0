@@ -1,7 +1,7 @@
 # 
-# filePath <- "data/raw/lowBirthWeight/co_lowbirthweight_births_nosupp_1822.xlsx"
-# data <- readxl::read_xlsx(filePath)
-# geometry <- geometryFiles[[1]]
+filePath <- "data/raw/lowBirthWeight/co_lowbirthweight_births_nosupp_1822.xlsx"
+data <- readxl::read_xlsx(filePath)
+geometry <- geometryFiles[[3]]
 processLowBirthWeight <- function(geometry, name, data){
  
   

@@ -1,5 +1,4 @@
 # 
-# filePath <- "data/raw/drinkingWater/CONUS_L50dBA_sumDay_exi.tif"
 # data <- allData
 # geometry <- geometryFiles[[3]]
 # name <- names(geometryFiles)[[3]]

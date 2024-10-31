@@ -1,8 +1,7 @@
 # 
-# filePath <- "data/raw/cancer/CONUS_L50dBA_sumDay_exi.tif"
 # data <- allData
-# geometry <- geometryFiles[[1]]
-# name <- names(geometryFiles)[[1]]
+geometry <- geometryFiles[[3]]
+name <- names(geometryFiles)[[3]]
 
 processMentalHealth <- function(geometry, name, data){
   

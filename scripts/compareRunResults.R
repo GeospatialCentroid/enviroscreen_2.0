@@ -1,7 +1,7 @@
 ###
 geography <- "censusBlockGroup"
-geoid <- "080410045013" 
-function(geography, geoid){
+geoid <- "081010036001" 
+generateDifference <- function(geography, geoid){
   # current run 
   currentRun <- paste0("data/products/enviroscreenScore/EnviroScreen_",geography,".csv") |>
     readr::read_csv()
@@ -21,7 +21,8 @@ function(geography, geoid){
   write_csv(x = r3, file = paste0("scripts/outputs/comparison_",geography,"_",geoid,".csv"))
 }
 
-
+generateDifference(geography = "censusBlockGroup",
+                   geoid = "081010036001" )
 
 # testing for zero and NA values within indicators 
 # current run 
