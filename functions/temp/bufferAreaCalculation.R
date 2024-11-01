@@ -79,50 +79,50 @@
 # 
 # head(blockData)
 
-calBufferValues <- function(location, bufferDist, measureValue, blockCenters, blockGroups){
-  # location : the point or area of interest
-  # measureValue : column name that is used to define the value of interest 
-  # blockCenters : point dataset with pop values 
-  # blockGroups : vector dataset with 
-  
-  # buffer location 
-  buffArea <- terra::buffer(x = location, width = bufferDist)
-  # test intersection on block centers
-  t1 <- terra::intersect(x = blockCenters, y = buffArea)
-  # select blocks of interest 
-  b1 <- blockCenters[blockCenters$GEOID20 %in% t1$GEOID20, ]
-  
-  ## determine which census block groups are within the selected block centers 
-  cbgID <- b1 |>
-    as.data.frame()|>
-    dplyr::mutate(
-      bgGEOID = stringr::str_trunc(GEOID20, width = 12, side = "right",ellipsis ="")
-    )|>
-    dplyr::group_by(bgGEOID)|>
-    dplyr::summarise(
-      blockPop = sum(POP20, na.rm=TRUE)
-    )
-  # block group data with block values 
-  selectCBG <- blockGroups |> 
-    as.data.frame()|>
-    dplyr::filter(GEOID %in% cbgID$bgGEOID)|> 
-    dplyr::select("GEOID", "estimateACSPop", "estimateCensusPop")|>
-    dplyr::left_join(y = cbgID, by = c("GEOID"= "bgGEOID")) |>
-    dplyr::mutate(
-      popWeighted = blockPop/estimateCensusPop* estimateACSPop,
-      totalPop = sum(popWeighted),
-      weightValue = popWeighted*measureValue,
-      divideByTotalPop = weightValue / totalPop[1]
-    )
-  # find result 
-  result <- sum(selectCBG$weightValue)/selectCBG$totalPop[1]
-  ### this is just returning the measureValue, which makes sense because it's the only feature 
-  ### not on the top and bottom of the equation 
-  
-  ### the other though here is that there might be a different measured value depending on the
-  ### census block used. This may or may not apply to some buffered datasets, but wouldn't matter for 
-  ### for things like apens 
-  
-  
-}
-
+# calBufferValues <- function(location, bufferDist, measureValue, blockCenters, blockGroups){
+#   # location : the point or area of interest
+#   # measureValue : column name that is used to define the value of interest 
+#   # blockCenters : point dataset with pop values 
+#   # blockGroups : vector dataset with 
+#   
+#   # buffer location 
+#   buffArea <- terra::buffer(x = location, width = bufferDist)
+#   # test intersection on block centers
+#   t1 <- terra::intersect(x = blockCenters, y = buffArea)
+#   # select blocks of interest 
+#   b1 <- blockCenters[blockCenters$GEOID20 %in% t1$GEOID20, ]
+#   
+#   ## determine which census block groups are within the selected block centers 
+#   cbgID <- b1 |>
+#     as.data.frame()|>
+#     dplyr::mutate(
+#       bgGEOID = stringr::str_trunc(GEOID20, width = 12, side = "right",ellipsis ="")
+#     )|>
+#     dplyr::group_by(bgGEOID)|>
+#     dplyr::summarise(
+#       blockPop = sum(POP20, na.rm=TRUE)
+#     )
+#   # block group data with block values 
+#   selectCBG <- blockGroups |> 
+#     as.data.frame()|>
+#     dplyr::filter(GEOID %in% cbgID$bgGEOID)|> 
+#     dplyr::select("GEOID", "estimateACSPop", "estimateCensusPop")|>
+#     dplyr::left_join(y = cbgID, by = c("GEOID"= "bgGEOID")) |>
+#     dplyr::mutate(
+#       popWeighted = blockPop/estimateCensusPop* estimateACSPop,
+#       totalPop = sum(popWeighted),
+#       weightValue = popWeighted*measureValue,
+#       divideByTotalPop = weightValue / totalPop[1]
+#     )
+#   # find result 
+#   result <- sum(selectCBG$weightValue)/selectCBG$totalPop[1]
+#   ### this is just returning the measureValue, which makes sense because it's the only feature 
+#   ### not on the top and bottom of the equation 
+#   
+#   ### the other though here is that there might be a different measured value depending on the
+#   ### census block used. This may or may not apply to some buffered datasets, but wouldn't matter for 
+#   ### for things like apens 
+#   
+#   
+# }
+# 

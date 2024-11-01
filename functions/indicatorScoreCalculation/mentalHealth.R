@@ -1,7 +1,7 @@
 # 
 # data <- allData
-geometry <- geometryFiles[[3]]
-name <- names(geometryFiles)[[3]]
+# geometry <- geometryFiles[[3]]
+# name <- names(geometryFiles)[[3]]
 
 processMentalHealth <- function(geometry, name, data){
   

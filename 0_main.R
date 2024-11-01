@@ -7,11 +7,21 @@
 
 
 # source libraries ---
-pacman::p_load(terra, dplyr, stringr, sf,tigris,readr,readxl,R.utils,
-               vroom, lubridate)
+## test for and install pacman if needed
+if("pacman" %in% rownames(installed.packages()) == FALSE){install.packages("pacman")}
+# load the rest of the packages 
+pacman::p_load(terra,
+               dplyr,
+               stringr,
+               sf,
+               tigris,
+               readr,
+               readxl,
+               R.utils,
+               vroom, 
+               lubridate,
+               sfdep)
 
-#find sfdep,tmap, lubridate
-# tmap_mode("view")
 
 ## alt ; install you census api key if you want or provide as parameter in functions 
 tidycensus::census_api_key(key = "your key here")
@@ -29,35 +39,44 @@ createFolderStructures()
 loadFunctions("functions")
 
 
+# define the overwrite value
+## if you running for the first time set this to true 
+## otherwise you'll same a lot of processing time by setting this to FALSE
+## you can always alter the specific function parameter 
+overwrite <- TRUE 
+
 # gatheringDataSources ---- 
 ## geographic layers  
-pullCensusGeographies(overwrite = FALSE)
+pullCensusGeographies(overwrite = overwrite)
 ### generate a named list of all geometry objects used in the workflow
 geometries <- processGeometryLayers()
 
 # prepping for analysis  --------------------------------------------------
 ## adjust block populations 
+### produces the block centroid 2022 acs adjusted values 
 if(!file.exists("data/processed/geographies/blocksWithAdjustedPop.gpkg")){
   source("scripts/adjustBlockPopulation.R")
 }
+
 ## blockGroup buffering 
 ### quite a long run time. > 5 minutes 
 if(!file.exists("data/processed/geographies/bgNeighbors.RDS")){
   source("scripts/blockGroupBuffering.R")
 }
-# read in the 
+# read in the block group neighbors dataset, used in all buffer calculations 
 blockGroupNeighbors <- readRDS("data/processed/geographies/bgNeighbors.RDS")
 
 
 # Indicator Score Calculation ----
 
 ## EJScreen Data 
-getEJscreen(geometryLayers = geometries, overwrite = FALSE)
+getEJscreen(geometryLayers = geometries, overwrite = overwrite)
 
 # ACS data 
-getACS(geometryLayers = geometries , overwrite =FALSE)
+getACS(geometryLayers = geometries , overwrite =overwrite)
 
 ## Environmental Exposures ----
+print("Environmental Exposures")
 ## air toxics  
 getAir(filePath = "data/raw/haps/APENS_7_15_2024.xlsx",
        geometryLayers = geometries)
@@ -67,12 +86,8 @@ getDiesel(geometryLayers = geometries)
 
 ## drinking water 
 getDrinkingWater(geometryLayers = geometries)
-## errors : Caused by error in `vctrs::vec_size_common()`:
-# ! object 'GEOID' not found 
-
 
 ## lead 
-### ACS data --- what is used to call this measures? 
 getLead(geometryLayers = geometries)
 
 ## noise 
@@ -94,6 +109,7 @@ getPM25(filePath = "data/raw/epa_cmaq/2021_pm25_daily_average.txt.gz",
 getTraffic(geometryLayers = geometries)
 
 ## environmental Effects ---- 
+print("Environmental Effects")
 ## impaired streams 
 getStreams(filePath = "data/raw/surfaceWater/streams_303d_2024.shp",
            geometryLayers = geometries)
