@@ -1,7 +1,7 @@
 # 
 # data <- allData
-# geometry <- geometryFiles[[1]]
-# name <- names(geometryFiles)[[1]]
+# geometry <- geometryFiles[[2]]
+# name <- names(geometryFiles)[[2]]
 
 processDemoGraphics <- function(geometry, name, data){
   # select the data set of interest 
@@ -36,16 +36,15 @@ processDemoGraphics <- function(geometry, name, data){
       "Percent low income" =  "percent_lowincome",
       "Percent people of color" = "percent_minority"
     )|>
-    dplyr::mutate(
-      across(where(is.numeric),
-             .fns = list(pcntl = ~cume_dist(.)*100),
-             .names = "{col}_{fn}")
-    )
+    calculateCumulativeDistance()
   # appply percentile calculations 
   output$demograpics <- output |>
     dplyr::select(contains("_pcntl"))|>
     apply(MARGIN = 1, FUN = gm_mean)
-  
+  # account for non populated areas 
+  if(name !="county"){
+    output <- removeZeroPopulation(data = output, name = name)
+  }
   
   #export 
   return(output)

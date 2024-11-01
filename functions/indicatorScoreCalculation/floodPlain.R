@@ -1,7 +1,7 @@
 # 
 # filePath <- "data/raw/floodplains/floodHazard.shp"
 # data <- v1
-# geometry <- geometryFiles[[1]]
+# geometry <- geometryFiles[[3]]
 
 processFlood <- function(geometry, name, data){
   # process the flood plain data 

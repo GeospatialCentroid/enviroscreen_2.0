@@ -20,7 +20,7 @@ processPollutionAndClimate <- function(geometry, name, data){
     dplyr::mutate(
       pollutionClimateBurden =  sum(environmentalExposures,
                                     (environmentalEffects * 0.5) ,
-                                    (climateVulnerability *0.5),na.rm=TRUE)/2,
+                                    (climateVulnerability *0.5))/2,
     )
   
   # not super happy with the column naming at the moment

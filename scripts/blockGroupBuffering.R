@@ -1,10 +1,14 @@
+
 ###
-# run the geoprocessing to determine all BG within a 10km buffer of the a census block group 
+# run the geoprocessing to determine all BG within a 5km buffer of the a census block group 
 # this list of Geoids will enable a quick reference for what block controids might need to be considered. 
 ###
 
+
 library(sfdep)
+
 bgs <- terra::vect("data/processed/geographies/censusBlockGroup.gpkg")
+
 
 #' Buffer a block group and grap GEOID of all block groups within 5km 
 #'
@@ -12,18 +16,17 @@ bgs <- terra::vect("data/processed/geographies/censusBlockGroup.gpkg")
 #' @param allBlockGroups : a spatial data layer representing all block groups 
 #'
 #' @return
+
 bufferAndCollect <- function(index, allBlockGroups){
   # ensure the input geometry is valid 
   validGeom <- terra::makeValid(allBlockGroups[index,])
-  # buffer the geomentry by 10000m.
+  # buffer the geomentry by 5000m.
   ## can use meters here because dataset is in an unprojected lat lon
   buf <- terra::buffer(x = validGeom, width = 5000)
-  
   # crop 
   ## limit the number of outside block groups considered by cropping to the extent
   ## of the buffer object 
   cropBGS <- try(terra::crop(x = allBlockGroups, y = buf))
-  
   # hitting errors with invalid geometries after the buffer. 
   # work around here was to take a centroid and buffer by an additional 2km so 12km
   # total. This should work as later spatail relationships are point to point in nature
@@ -44,13 +47,13 @@ bufferAndCollect <- function(index, allBlockGroups){
   }
 }
 
+
 # can't store the list inside the terra object so we create a DF 
 bgsDF <- as.data.frame(bgs)
 # using index for the function
 vals <- seq_along(bgs)
 # assign results 
 output <- purrr::map(.x = vals, .f = bufferAndCollect, allBlockGroups = bgs)
-
 # store the list object the data frame with the block group GEOID  
 bgsDF$neighbors <- output
 
@@ -58,4 +61,3 @@ bgsDF$neighbors <- output
 ## this will be read in by later functions to determine what neighbor block groups
 ## using the RDS format because a list is store in a datframe column 
 saveRDS(bgsDF, file = "data/processed/geographies/bgNeighbors.RDS")
-

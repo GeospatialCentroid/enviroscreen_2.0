@@ -28,10 +28,18 @@ processEnviroScreen <- function(geometry, name, data){
       "Population under 5","Population under 5_pcntl",
       "sensitivePopulation",
       "popCharacteristic"
-    ) |>
-    dplyr::mutate(
-      scaledpopCharacteristic = popCharacteristic/max(popCharacteristic)*10
     )
+  
+  # exclude the NA values to calculat the full score 
+  max <- max(v1$popCharacteristic, na.rm = TRUE)
+  v1$scaledpopCharacteristic <- NA
+  for(i in 1:nrow(v1)){
+    rowVal <- v1$popCharacteristic[i]
+    if(!is.na(rowVal)){
+      v1$scaledpopCharacteristic[i] <- rowVal/max*10
+    }
+  }
+  
   # enviromental effects
   v2 <- read_csv(vals[grepl(pattern = "PollutionAndClimate", x = vals )])|>
     dplyr::select(
@@ -60,10 +68,18 @@ processEnviroScreen <- function(geometry, name, data){
       "Wildfire risk", "Wildfire risk_pcntl",                                     
       "climateVulnerability",                            
       "pollutionClimateBurden" 
-      ) |>
-    dplyr::mutate(
-      scaledpollClimate = pollutionClimateBurden/max(pollutionClimateBurden)*10
-    )
+      )
+  # exclude the NA values to calculat the full score 
+  max <- max(v2$pollutionClimateBurden, na.rm = TRUE)
+  v2$scaledpollClimate <- NA
+  for(i in 1:nrow(v2)){
+    rowVal <- v2$pollutionClimateBurden[i]
+    if(!is.na(rowVal)){
+      v2$scaledpollClimate[i] <- rowVal/max*10
+    }
+  }
+  
+
   #bind datasets 
   output <- dplyr::left_join(v1, v2, by = "GEOID")|>
     dplyr::mutate(
@@ -75,7 +91,7 @@ processEnviroScreen <- function(geometry, name, data){
       socEco_Pctl = cume_dist(demograpics)*100,
       pollClimBurden_Pctl = cume_dist(pollutionClimateBurden)*100,
       popCharacteristic_Pctl = cume_dist(popCharacteristic)*100,
-      finalScore_Pctl = cume_dist(finalScore)*100,
+      finalScore_Pctl = cume_dist(finalScore)*100
     )
 
   

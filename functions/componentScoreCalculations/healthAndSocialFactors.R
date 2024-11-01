@@ -14,7 +14,7 @@ processHealthAndSocial <- function(geometry, name, data){
   output <- dplyr::left_join(v1, v2, by= "GEOID")|>
     rowwise()|>
     dplyr::mutate(
-      popCharacteristic = sum(sensitivePopulation, demograpics, na.rm = TRUE)/2
+      popCharacteristic = sum(sensitivePopulation, demograpics)/2
     )
   
   #export

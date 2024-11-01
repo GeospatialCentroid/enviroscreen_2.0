@@ -2,7 +2,7 @@
 # filePath <- "data/raw/Mining/CONUS_L50dBA_sumDay_exi.tif"
 # data <- terra::rast(filePath)  
 # geometry <- geometryFiles[[1]]
-processOilAndGas<- function(data){
+processOilAndGas<- function(data, geometries){
   # read in reference layers 
   blocks <- sf::st_read("data/processed/geographies/blocksWithAdjustedPop.gpkg")
   # block group relations 
@@ -63,6 +63,14 @@ processOilAndGas<- function(data){
       PercentPopScore,
       numberOfSource
     )
+  # join to get all missing features and assigned values of zero 
+  countyScores <- geometries$county |>
+    st_drop_geometry()|>
+    dplyr::select("GEOID")|>
+    dplyr::left_join(countyScores ,by = "GEOID")|>
+    dplyr::mutate(PercentPopScore = case_when(is.na(PercentPopScore) ~ 0,
+                                              .default = PercentPopScore))
+  
   ## censustract 
   censusTractScores <- allScores |> 
     dplyr::group_by(ctGEOID)|>
@@ -75,18 +83,35 @@ processOilAndGas<- function(data){
       PercentPopScore,
       numberOfSource
     )
+  # join to get all missing features and assigned values of zero 
+  censusTractScores <- geometries$censusTract |>
+    st_drop_geometry()|>
+    dplyr::select("GEOID")|>
+    dplyr::left_join(censusTractScores ,by = "GEOID")|>
+    dplyr::mutate(PercentPopScore = case_when(is.na(PercentPopScore) ~ 0,
+                                              .default = PercentPopScore))
+  
   ## census block group 
-  censusBlockGroupScores <- allScores |> 
-    dplyr::group_by(bgGEOID)|>
-    dplyr::summarise(noPopScore = sum(aggregatedNoPopScore),
-                     PercentPopScore = sum(aggregatedPercentPopScore),
-                     numberOfSource = n())|>
-    dplyr::select(
-      "GEOID" = bgGEOID,
-      noPopScore,
-      PercentPopScore,
-      numberOfSource
-    )
+  censusBlockGroupScores <- allScores |>
+    dplyr::group_by(bgGEOID) |>
+    dplyr::summarise(
+      noPopScore = sum(aggregatedNoPopScore),
+      PercentPopScore = sum(aggregatedPercentPopScore),
+      numberOfSource = n()
+    ) |>
+    dplyr::select("GEOID" = bgGEOID,
+                  noPopScore,
+                  PercentPopScore,
+                  numberOfSource)
+  # join to get all missing features and assigned values of zero 
+  censusBlockGroupScores <- geometries$censusBlockGroup |>
+    st_drop_geometry()|>
+    dplyr::select("GEOID")|>
+    dplyr::left_join(censusBlockGroupScores ,by = "GEOID")|>
+    dplyr::mutate(PercentPopScore = case_when(is.na(PercentPopScore) ~ 0,
+                                              .default = PercentPopScore))
+  
+  
   return(
     list(
       "county" = countyScores,
@@ -178,7 +203,7 @@ getOilAndGas<- function(geometryLayers){
     dir.create(exportDir)
   }
   # process the datasets 
-  results <- processOilAndGas(data = allOilAndGas_clean)
+  results <- processOilAndGas(data = allOilAndGas_clean, geometries = geometryFiles)
   
   for(i in seq_along(results)){
     data <- results[[i]]

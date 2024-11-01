@@ -1,7 +1,7 @@
 # 
 # data <- allData
-# geometry <- geometryFiles[[1]]
-# name <- names(geometryFiles)[[1]]
+# geometry <- geometryFiles[[3]]
+# name <- names(geometryFiles)[[3]]
 
 processOver65 <- function(geometry, name, data){
   # select the data set of interest 
@@ -11,8 +11,12 @@ processOver65 <- function(geometry, name, data){
   output <- structureACS(vals) |>
     dplyr::group_by(GEOID)|>
     dplyr::mutate(
-      age_over65 = sum( B01001_020, B01001_021, B01001_022, B01001_023, B01001_024, B01001_025,
-                        B01001_044, B01001_045, B01001_046, B01001_047, B01001_048, B01001_049))|>
+      # direct count 
+      # age_over65 = sum( B01001_020, B01001_021, B01001_022, B01001_023, B01001_024, B01001_025,
+      #                   B01001_044, B01001_045, B01001_046, B01001_047, B01001_048, B01001_049))|>
+    # percentage based 
+     age_over65 = sum( B01001_020, B01001_021, B01001_022, B01001_023, B01001_024, B01001_025,
+                      B01001_044, B01001_045, B01001_046, B01001_047, B01001_048, B01001_049)/B01003_001)|>
     select("GEOID", "age_over65")
   #export 
   return(output)

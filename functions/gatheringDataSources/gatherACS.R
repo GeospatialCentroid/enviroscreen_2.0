@@ -75,7 +75,7 @@ pullACS <- function(geometry, name){
       "C16002_013",
       #Percent less than high school education
       "B15002_001",
-      paste0("B15002_00", 3:9),
+      paste0("B15002_00", 2:9),
       "B15002_010",
       paste0("B15002_0", 20:27),
       #Percent disability

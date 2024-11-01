@@ -3,7 +3,7 @@
 # data <- d1
 # geometry <- geometryFiles[[1]]
 
-processAir <- function(data){
+processAir <- function(data,geometries){
   # read in reference layers 
   blocks <- sf::st_read("data/processed/geographies/blocksWithAdjustedPop.gpkg")
   # block group relations 
@@ -127,14 +127,24 @@ processAir <- function(data){
   write.csv(allScores, file = "data/products/environmentalExposures/airQuality/airQuality_census.csv")
   # 
   # generate aggregates score measures 
+  
   ## county
-  countyScores <- allScores |> 
+  countyScores <- allScores |>
     dplyr::group_by(cGEOID)|>
     dplyr::summarise(PercentPopScore = sum(aggregatedPercentPopScore))|>
     dplyr::select(
       "GEOID" = cGEOID,
-      "airToxins" = PercentPopScore,
+      "airToxins" = PercentPopScore
     )
+  # join to get all missing features and assigned values of zero 
+  countyScores <- geometries$county |>
+    st_drop_geometry()|>
+    dplyr::select("GEOID")|>
+    dplyr::left_join(countyScores ,by = "GEOID")|>
+    dplyr::mutate(airToxins = case_when(is.na(airToxins) ~ 0,
+                                              .default = airToxins))
+    
+    
   ## censustract 
   censusTractScores <- allScores |> 
     dplyr::group_by(ctGEOID)|>
@@ -143,6 +153,13 @@ processAir <- function(data){
       "GEOID" = ctGEOID,
       "airToxins" = PercentPopScore,
     )
+  # join to get all missing features and assigned values of zero 
+  censusTractScores <- geometries$censusTract |>
+    st_drop_geometry()|>
+    dplyr::select("GEOID")|>
+    dplyr::left_join(censusTractScores ,by = "GEOID")|>
+    dplyr::mutate(airToxins = case_when(is.na(airToxins) ~ 0,
+                                              .default = airToxins))
   ## census block group 
   censusBlockGroupScores <- allScores |> 
     dplyr::group_by(bgGEOID)|>
@@ -151,6 +168,15 @@ processAir <- function(data){
       "GEOID" = bgGEOID,
       "airToxins" = PercentPopScore,
     )
+  # join to get all missing features and assigned values of zero 
+  censusBlockGroupScores <- geometries$censusBlockGroup |>
+    st_drop_geometry()|>
+    dplyr::select("GEOID")|>
+    dplyr::left_join(censusBlockGroupScores ,by = "GEOID")|>
+    dplyr::mutate(airToxins = case_when(is.na(airToxins) ~ 0,
+                                              .default = airToxins))
+  
+  
   return(
     list(
       "county" = countyScores,
@@ -183,7 +209,7 @@ getAir <- function(filePath,  geometryLayers){
     dir.create(exportDir)
   }
   # process the datasets 
-  results <- processAir(data = d1)
+  results <- processAir(data = d1, geometries = geometryFiles)
   
   for(i in seq_along(results)){
     data <- results[[i]]

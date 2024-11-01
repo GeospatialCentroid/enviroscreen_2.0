@@ -1,16 +1,21 @@
-#' loadFunctions 
-#' @description : help function to load all functions. Useful when making edits as you can run in console 
+#' Load Functions from a Directory
+#'
+#' This function loads all R script files from a specified directory and sources them into the current environment.
+#'
+#' @param path The path to the directory containing the R script files.
+#'
+#' @return Nothing.
 
-loadFunctions <- function(path){
-  # builds a path to the folder where .R scripts are contained 
-  filePaths <- list.files(paste0(path,"/"),
+loadFunctions <- function(path) {
+  # Get a list of all R script files in the directory and its subdirectories
+  filePaths <- list.files(path,
                           pattern = ".R",
                           full.names = TRUE,
                           recursive = TRUE)
-  # this grabs all files, so might hit some issues as we can only source .R files 
-  # Loop here to print the function name, can be helpful to have
+  
+  # Source each R script file
   for (i in seq_along(filePaths)) {
-    print(filePaths[i])
+    cat("Loading:", filePaths[i], "\n")
     source(file = filePaths[i], echo = FALSE)
   }
 }
