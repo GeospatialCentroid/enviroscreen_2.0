@@ -1,6 +1,6 @@
 
 
-
+if(!exists("data/products/enviroscreenScore/shp")){dir.create("data/products/enviroscreenScore/shp")}
 
 # read in renamesets 
 ## enviroscreen rename 
