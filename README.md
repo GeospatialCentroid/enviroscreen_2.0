@@ -31,7 +31,7 @@ The material within this repository is an incomplete draft until the public rele
   - ensure you see `On branch main`
   - if not, try `git checkout main`, run `git status` to double check 
   
-- download the source data from [link] -- add link once this exists 
+- download the source data from [link](https://drive.google.com/drive/folders/1mpe79RyAJ62-7EuBYqjTq_Kqhd1qEltT?usp=drive_link) 
 
 - move the source data to the `data` folder and extract 
 
