@@ -43,7 +43,7 @@ loadFunctions("functions")
 ## if you running for the first time set this to true 
 ## otherwise you'll same a lot of processing time by setting this to FALSE
 ## you can always alter the specific function parameter 
-overwrite <- TRUE 
+overwrite <- FALSE 
 
 # gatheringDataSources ---- 
 ## geographic layers  

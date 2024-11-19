@@ -12,7 +12,7 @@ processUnder5 <- function(geometry, name, data){
   output <- structureACS(vals) |>
     dplyr::group_by(GEOID)|>
     dplyr::mutate(
-      age_under5 = sum(B01001_003, B01001_027))|>
+      age_under5 = sum(B01001_003, B01001_027)/B01003_001)|>
     select("GEOID", "age_under5")
   #export 
   return(output)
