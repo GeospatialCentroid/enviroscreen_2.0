@@ -42,19 +42,18 @@ bg2022 <- tidycensus::get_acs(
     select(bgGEOID = GEOID,
            totalPop2022 = estimate)
   
-  # Join block data with population data and calculate adjusted population
-  blockJoin <- blocks |>
-    left_join(y = bg2020, by = "bgGEOID") |>
-    left_join(y = bg2022, by = "bgGEOID") |>
-    mutate(
-      # Adjust population based on changes between 2020 census and 2022 ACS
-      acs2022PopAdj = case_when(POP20 == 0 ~ 0,
-                                POP20 != 0 ~ round((POP20 / totalPop2020) * totalPop2022)),
-      # Calculate percentage of block group population represented by each block
-      percentOfCBGpopulation = round((acs2022PopAdj / totalPop2022) * 100, digits = 2)
-    )
+# Join block data with population data and calculate adjusted population
+blockJoin <- blocks |>
+  left_join(y = bg2020, by = "bgGEOID") |>
+  left_join(y = bg2022, by = "bgGEOID") |>
+  mutate(
+    # Adjust population based on changes between 2020 census and 2022 ACS
+    acs2022PopAdj = case_when(POP20 == 0 ~ 0,
+                              POP20 != 0 ~ round((POP20 / totalPop2020) * totalPop2022)),
+    # Calculate percentage of block group population represented by each block
+    percentOfCBGpopulation = round((acs2022PopAdj / totalPop2022) * 100, digits = 2)
+  )
 
-  
   
   
   # Create output directory if it doesn't exist

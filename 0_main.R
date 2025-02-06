@@ -5,7 +5,6 @@
 # carverd@colostate.edu
 ###
 
-
 # source libraries ---
 ## test for and install pacman if needed
 if("pacman" %in% rownames(installed.packages()) == FALSE){install.packages("pacman")}
@@ -70,10 +69,10 @@ blockGroupNeighbors <- readRDS("data/processed/geographies/bgNeighbors.RDS")
 # Indicator Score Calculation ----
 
 ## EJScreen Data 
-getEJscreen(geometryLayers = geometries, overwrite = overwrite)
+getEJscreen(geometryLayers = geometries, overwrite = TRUE)
 
 # ACS data 
-getACS(geometryLayers = geometries , overwrite =overwrite)
+getACS(geometryLayers = geometries , overwrite =TRUE)
 
 ## Environmental Exposures ----
 print("Environmental Exposures")

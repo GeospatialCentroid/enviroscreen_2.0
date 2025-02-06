@@ -88,6 +88,10 @@ pullCensusGeographies <- function(overwrite = FALSE){
     if(!file.exists(censusTract)){
       getcensusTract(path = censusTract)
     }
+    #censusTract2010
+    if(!file.exists(censusTract2010)){
+      getcensusTract2010(path = censusTract2010)
+    }
     #getcensusBlockGroups
     if(!file.exists(censusBlockGroups)){
       getcensusBlockGroups(path = censusBlockGroups)
