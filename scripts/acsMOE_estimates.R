@@ -59,7 +59,7 @@ propMOE_estimation <- function(columns_vect, totalPop_df){
 # reference layer 
 allVar <- tidycensus::load_variables(year = "2022", dataset = "acs5")
 
-# indicators needed 
+# indicators needed - what's used in enviroscreen 
 totalPop = c("B01003_001")
 under5 = c("B01001_003","B01001_027") 
 over64 = c( paste0("B01001_0", 20:25),paste0("B01001_0", 44:49))
